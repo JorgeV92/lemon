@@ -10,13 +10,15 @@
 #include <unordered_map>
 #include <vector>
 
+#include <lemon/utils/uuid.hpp>
+
+
 namespace lemon {
 
 using OrderId = std::uint64_t;
 
 class PriceLevel;
 class Side;
-class UuidGenerator;
 class OrderBookSnapshot;
 
 struct OrderType;
