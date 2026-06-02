@@ -85,16 +85,29 @@ enum class PegReferenceType : std::uint8_t {
   LastTrade
 };
 
-struct OrderType {
-  OrderId id_{};
-  Side side_{};
-  Price price_{};
-  Quantity quantity_{};
-  Quantity visible_quantity_{};
-  Quantity hidden_quantity_{};
-  TimestampMs timestamp_{};
-  TimeInForcePolicy time_in_force_{};
-  std::optional<TimestampMs> expires_at_{};
+class OrderType {
+public:
+  OrderType() = default;
+
+  OrderType(OrderId id,
+            Side side,
+            Price price,
+            Quantity quantity,
+            Quantity visible_quantity,
+            Quantity hidden_quantity,
+            TimestampMs timestamp,
+            TimeInForcePolicy time_in_force = {},
+            std::optional<TimestampMs> expires_at = std::nullopt)
+    : id_(id),
+      side_(side),
+      price_(price),
+      quantity_(quantity),
+      visible_quantity_(visible_quantity),
+      hidden_quantity_(hidden_quantity),
+      timestamp_(timestamp),
+      time_in_force_(time_in_force),
+      expires_at_(expires_at) {
+  }
 
   OrderId get_id() const {
     return id_;
@@ -147,6 +160,21 @@ struct OrderType {
   Quantity total_quantity() const {
     return Quantity{visible_quantity_.value() + hidden_quantity_.value()};
   }
+
+  std::optional<TimestampMs> get_expires_at() const {
+    return expires_at_;
+  }
+
+private:
+  OrderId id_{};
+  Side side_{};
+  Price price_{};
+  Quantity quantity_{};
+  Quantity visible_quantity_{};
+  Quantity hidden_quantity_{};
+  TimestampMs timestamp_{};
+  TimeInForcePolicy time_in_force_{};
+  std::optional<TimestampMs> expires_at_{};
 };
 
 struct LimitOrder {

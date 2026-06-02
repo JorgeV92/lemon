@@ -51,12 +51,15 @@ The eventual usage should look roughly like:
 
 
 int main() {
-    lemon::OrderType order;
-    order.id_ = 1;
-    order.side_ = lemon::Side::Buy;
-    order.price_ = lemon::Price{100};
-    order.quantity_ = lemon::Quantity{10};
-    order.visible_quantity_ = lemon::Quantity{10};
+    lemon::OrderType order{
+        1,
+        lemon::Side::Buy,
+        lemon::Price{100},
+        lemon::Quantity{10},
+        lemon::Quantity{10},
+        lemon::Quantity{0},
+        1717286400000
+    };
 
 
     // Future:
