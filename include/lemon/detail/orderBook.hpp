@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <lemon/detail/orders/order.hpp>
 #include <lemon/utils/uuid.hpp>
 
 
@@ -18,10 +19,7 @@ namespace lemon {
 using OrderId = std::uint64_t;
 
 class PriceLevel;
-class Side;
 class OrderBookSnapshot;
-
-struct OrderType;
 
 struct pair_bids_ask {
   std::unordered_map<uint64_t, uint64_t> bids;

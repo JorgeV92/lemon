@@ -11,26 +11,15 @@
 #include <unordered_map>
 #include <vector>
 
+#include <lemon/detail/orders/order_type.hpp>
+
 namespace lemon {
-
-using OrderId = std::uint64_t;
-
-struct Order {
-  OrderId id; 
-  std::uint64_t timestamp;
-  std::uint64_t quantity;
-  std::uint64_t price; 
-
-  OrderId get_id() const  { return id; }
-
-  std::uint64_t get_timestamp() const { return timestamp; }
-};
 
 class OrderQueue {
 public:
   OrderQueue() = default;
 
-  void push(std::shared_ptr<Order> order) {
+  void push(std::shared_ptr<OrderType> order) {
     if (!order) return;
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -40,7 +29,7 @@ public:
     order_ids.push_back(order_id);
   }
 
-  std::optional<std::shared_ptr<Order>> pop() {
+  std::optional<std::shared_ptr<OrderType>> pop() {
     std::lock_guard<std::mutex> lock(mutex_);
 
     while (!order_ids.empty()) {
@@ -58,20 +47,17 @@ public:
     return std::nullopt;
   }
 
-  std::optional<std::shared_ptr<Order>> find(OrderId order_id) const {
+  std::optional<std::shared_ptr<OrderType>> find(OrderId order_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     auto it = orders_.find(order_id);
     if (it == orders_.end()) 
       return std::nullopt;
 
-    std::shared_ptr<Order> removed_order = it->second;
-    orders_.erase(it);
-
-    return removed_order;
+    return it->second;
   }
 
-  std::vector<std::shared_ptr<Order>> snapshot_vec() const {
+  std::vector<std::shared_ptr<OrderType>> snapshot_vec() const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::vector<std::shared_ptr<Order>> result;
@@ -90,7 +76,7 @@ public:
     return result;
   } 
 
-  std::vector<std::shared_ptr<Order>> to_vec() const {
+  std::vector<std::shared_ptr<OrderType>> to_vec() const {
     return snapshot_vec();
   }
 
@@ -107,7 +93,7 @@ public:
 private:
   mutable std::mutex mutex_;
 
-  std::unordered_map<OrderId, std::shared_ptr<Order>> orders_;
+  std::unordered_map<OrderId, std::shared_ptr<OrderType>> orders_;
   std::deque<OrderId> order_ids;
 };
 

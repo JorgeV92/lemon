@@ -4,16 +4,16 @@
 
 namespace lemon {
 
-OrderBookEntry::Price OrderBookEntry::price() const {
+Price OrderBookEntry::price() const {
   return level_->price();
 }
 
-OrderBookEntry::Quantity OrderBookEntry::visible_quantity() const {
+Quantity OrderBookEntry::visible_quantity() const {
   return level_->visible_quantity();
 }
 
-OrderBookEntry::Quantity OrderBookEntry::total_quantity() const {
-  reutrn level_->total_quantity();
+Quantity OrderBookEntry::total_quantity() const {
+  return level_->total_quantity();
 }
 
 std::size_t OrderBookEntry::order_count() const {
@@ -21,4 +21,3 @@ std::size_t OrderBookEntry::order_count() const {
 }
 
 } // namespace lemon 
-
