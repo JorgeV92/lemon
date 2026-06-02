@@ -9,7 +9,8 @@ project(
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED COMPONENTS json)
+find_package(OpenSSL REQUIRED)
 
 add_library(lemon INTERFACE)
 add_library(lemon::lemon ALIAS lemon)
@@ -27,6 +28,8 @@ target_link_libraries(
   lemon
   INTERFACE
     Boost::headers
+    Boost::json
+    OpenSSL::Crypto
 )
 
 install(
