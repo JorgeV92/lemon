@@ -9,7 +9,7 @@
 
 #include <lemon/detail/errors.hpp>
 #include <lemon/detail/execution/match_result.hpp>
-#include <lemon/detail/orders/order.hpp>
+#include <lemon/detail/orders/order_type.hpp>
 #include <lemon/detail/orders/order_update.hpp>
 #include <lemon/detail/pricelevel/order_queue.hpp>
 #include <lemon/detail/pricelevel/snapshot.hpp>
@@ -38,13 +38,13 @@ public:
 
   std::shared_ptr<PriceLevelStatistics> stats() const;
 
-  std::shared_ptr<Order> add_order(Order order);
+  std::shared_ptr<OrderType> add_order(OrderType order);
 
-  std::vector<std::shared_ptr<Order>> iter_orders() const;
+  std::vector<std::shared_ptr<OrderType>> iter_orders() const;
 
-  std::vector<std::shared_ptr<Order>> snapshot_orders() const;
+  std::vector<std::shared_ptr<OrderType>> snapshot_orders() const;
 
-  MatchResult match_order(const Order& order);
+  MatchResult match_order(const OrderType& order);
 
   void update_order(const OrderUpdate& update);
 

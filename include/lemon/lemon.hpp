@@ -3,7 +3,7 @@
 #include <lemon/detail/errors.hpp>
 #include <lemon/detail/execution/match_result.hpp>
 #include <lemon/detail/execution/trade.hpp>
-#include <lemon/detail/orders/order.hpp>
+#include <lemon/detail/orders/order_type.hpp>
 #include <lemon/detail/orders/order_update.hpp>
 #include <lemon/detail/orderBook.hpp>
 #include <lemon/detail/pricelevel/entry.hpp>

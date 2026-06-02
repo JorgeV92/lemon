@@ -3,9 +3,9 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 #include <lemon/utils/value.hpp>
-#include <string_view>
 
 namespace lemon {
 
@@ -31,49 +31,52 @@ struct TimeInForcePolicy {
 
   std::optional<std::uint64_t> expiry_timestamp{};
 
-  std::string_view to_string() {
-    switch (expiry_timestamp) {
+  std::string_view to_string() const {
+    switch (type) {
       case TimeInForce::GoodTillCanceled:
         return "GTC";
+      case TimeInForce::ImmediateOrCancel:
+        return "IOC";
+      case TimeInForce::FillOrKill:
+        return "FOK";
+      case TimeInForce::GoodTillDate:
+        return "GTD";
+      case TimeInForce::Day:
+        return "DAY";
     }
-    
+
     return "UNKNOWN";
   }
 
-  bool is_immediate() {
-    return expiry_timestamp == TimeInForce::ImmediateOrCancel ||
-           expiry_timestamp == TimeInForce::FillOrKill;
+  bool is_immediate() const {
+    return type == TimeInForce::ImmediateOrCancel ||
+           type == TimeInForce::FillOrKill;
   }
 
-  bool has_expiry() {
-    return expiry_timestamp == TimeInForce::GoodTillCanceled ||
-           expiry_timestamp == TimeInForce::Day;
+  bool has_expiry() const {
+    return type == TimeInForce::GoodTillDate ||
+           type == TimeInForce::Day;
   }
 
   bool is_expired(
     std::uint64_t current_timestamp,
     std::optional<std::uint64_t> market_close_timestamp
-  ) {
-    switch (expiry_timestamp) {
-      case TimeInForce::GoodTillCanceled:
+  ) const {
+    switch (type) {
+      case TimeInForce::GoodTillDate:
         return expiry_timestamp.has_value() && current_timestamp >= *expiry_timestamp;
       case TimeInForce::Day:
-        return market_close_timestamp.has_value() && current_timestamp >= *expiry_timestamp;
+        return market_close_timestamp.has_value() && current_timestamp >= *market_close_timestamp;
+      case TimeInForce::GoodTillCanceled:
+      case TimeInForce::ImmediateOrCancel: 
+      case TimeInForce::FillOrKill:
+        return false;
     }
+    return false;
   }
+
+
 };
-
-bool is_expired(
-  std::uint64_t current_timestamp, 
-  std::optional<std::uint64_t> market_close_timestamp,
-  TimeInForce tif
-) {
-  if (tif == TimeInForce::GoodTillCanceled) {
-    return current_timestamp >= 
-  }
-} 
-
-
 
 enum class PegReferenceType : std::uint8_t {
   BestBid,
@@ -102,11 +105,15 @@ struct OrderType {
   }
 
   Price get_price() const {
-    return price;
+    return price_;
   }
 
   Quantity get_hidden_quantity() const {
     return hidden_quantity_;
+  }
+
+  Quantity get_quantity() const {
+    return quantity_;
   }
 
   Side get_side() const {
@@ -118,33 +125,51 @@ struct OrderType {
   }
 
   TimestampMs get_timestamp() const {
-    return timestamp;
+    return timestamp_;
+  }
+
+  bool is_buy() const {
+    return side_ == Side::Buy;
+  }
+
+  bool is_sell() const {
+    return side_ == Side::Sell;
+  }
+
+  bool has_hidden_quantity() const {
+    return hidden_quantity_.value() > 0;
+  }
+
+  bool is_fully_visible() const {
+    return !has_hidden_quantity() && visible_quantity_ == quantity_;
+  }
+
+  Quantity total_quantity() const {
+    return Quantity{visible_quantity_.value() + hidden_quantity_.value()};
   }
 };
 
 struct LimitOrder {
-  Order order;
+  OrderType order;
 };
 
 struct IcebergOrder {
-  Order order;
+  OrderType order;
   Quantity peak_quantity{};
 };
 
 struct PostOnlyOrder {
-  Order order;
+  OrderType order;
 };
 
 struct FillOrKillOrder {
-  Order order;
+  OrderType order;
 };
 
 struct ReserveOrder {
-  Order order;
+  OrderType order;
   Quantity reserve_quantity{};
   Quantity replenish_amount{};
 };
-
-using OrderType = Order;
 
 } // namespace lemon

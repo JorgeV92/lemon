@@ -41,7 +41,7 @@ public:
       if (it == orders_.end())
           continue;
 
-      std::shared_ptr<Order> order = it->second;
+      std::shared_ptr<OrderType> order = it->second;
       return order;
     }
     return std::nullopt;
@@ -60,7 +60,7 @@ public:
   std::vector<std::shared_ptr<OrderType>> snapshot_vec() const {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    std::vector<std::shared_ptr<Order>> result;
+    std::vector<std::shared_ptr<OrderType>> result;
     result.reserve(orders_.size());
 
     for (const auto& [id, order] : orders_) {

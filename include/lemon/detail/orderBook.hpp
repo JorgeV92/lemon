@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <lemon/detail/orders/order.hpp>
+#include <lemon/detail/orders/order_type.hpp>
 #include <lemon/utils/uuid.hpp>
 
 
