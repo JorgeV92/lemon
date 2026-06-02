@@ -26,14 +26,54 @@ enum class TimeInForce : std::uint8_t {
   Day
 };
 
-const expr std::string_view to_string(TimeInForce tif) {
-  switch (tif) {
-    case TimeInForce::GoodTillCanceled:
-    return "GTC";
+struct TimeInForcePolicy {
+  TimeInForce type{TimeInForce::GoodTillCanceled};
+
+  std::optional<std::uint64_t> expiry_timestamp{};
+
+  std::string_view to_string() {
+    switch (expiry_timestamp) {
+      case TimeInForce::GoodTillCanceled:
+        return "GTC";
+    }
+    
+    return "UNKNOWN";
   }
 
-  return "UNKNOWN";
-}
+  bool is_immediate() {
+    return expiry_timestamp == TimeInForce::ImmediateOrCancel ||
+           expiry_timestamp == TimeInForce::FillOrKill;
+  }
+
+  bool has_expiry() {
+    return expiry_timestamp == TimeInForce::GoodTillCanceled ||
+           expiry_timestamp == TimeInForce::Day;
+  }
+
+  bool is_expired(
+    std::uint64_t current_timestamp,
+    std::optional<std::uint64_t> market_close_timestamp
+  ) {
+    switch (expiry_timestamp) {
+      case TimeInForce::GoodTillCanceled:
+        return expiry_timestamp.has_value() && current_timestamp >= *expiry_timestamp;
+      case TimeInForce::Day:
+        return market_close_timestamp.has_value() && current_timestamp >= *expiry_timestamp;
+    }
+  }
+};
+
+bool is_expired(
+  std::uint64_t current_timestamp, 
+  std::optional<std::uint64_t> market_close_timestamp,
+  TimeInForce tif
+) {
+  if (tif == TimeInForce::GoodTillCanceled) {
+    return current_timestamp >= 
+  }
+} 
+
+
 
 enum class PegReferenceType : std::uint8_t {
   BestBid,
@@ -50,7 +90,7 @@ struct OrderType {
   Quantity visible_quantity_{};
   Quantity hidden_quantity_{};
   TimestampMs timestamp_{};
-  TimeInForce time_in_force_{TimeInForce::GoodTillCanceled};
+  TimeInForcePolicy time_in_force_{};
   std::optional<TimestampMs> expires_at_{};
 
   OrderId get_id() const {
@@ -73,7 +113,7 @@ struct OrderType {
     return side_;
   }
 
-  TimeInForce get_time_in_force() const {
+  TimeInForcePolicy get_time_in_force() const {
     return time_in_force_;
   }
 
