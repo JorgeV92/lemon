@@ -19,6 +19,13 @@ class OrderQueue {
 public:
   OrderQueue() = default;
 
+  explicit OrderQueue(const std::vector<std::shared_ptr<OrderType>>& orders) {
+    for (const auto& order : orders) {
+      if (!order) continue;
+      push(order);
+    }
+  }
+
   void push(std::shared_ptr<OrderType> order) {
     if (!order) return;
 

@@ -105,7 +105,7 @@ public:
   }
 
   void refresh_aggregates() {
-    order_count_ = orders_.size();
+    std::size_t order_count = 0;
     std::uint64_t visible_total = 0;
     std::uint64_t hidden_total = 0;
 
@@ -114,10 +114,12 @@ public:
         continue;
       }
 
+      ++order_count;
       visible_total += order->get_visible_quantity().value();
       hidden_total += order->get_hidden_quantity().value();
     }
 
+    order_count_ = order_count;
     visible_quantity_ = Quantity{visible_total};
     hidden_quantity_ = Quantity{hidden_total};
   }

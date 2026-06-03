@@ -24,6 +24,12 @@ class PriceLevel {
 public:
   explicit PriceLevel(Price price);
 
+  PriceLevel(Price price, 
+             Quantity visible_quantity,
+             Quantity hidden_quantity,
+             std::size_t order_count,
+             std::vector<std::shared_ptr<OrderType>> orders);
+
   static PriceLevel from_snapshot(PriceLevelSnapshot snapshot);
 
   Price price() const;
@@ -52,8 +58,8 @@ public:
 
 private:
   Price price_;
-  std::atomic<value_type> visible_quantity_{0};
-  std::atomic<value_type> hidden_quantity_{0};
+  std::atomic<std::uint64_t> visible_quantity_{0};
+  std::atomic<std::uint64_t> hidden_quantity_{0};
   std::atomic_size_t order_count_{0};
   OrderQueue orders_;
   std::shared_ptr<PriceLevelStatistics> stats_;
