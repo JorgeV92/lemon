@@ -12,24 +12,61 @@ include(CMakePackageConfigHelpers)
 find_package(Boost REQUIRED COMPONENTS json)
 find_package(OpenSSL REQUIRED)
 
-add_library(lemon INTERFACE)
+add_library(
+  lemon
+  STATIC
+    src/lemon/entry.cpp
+    src/lemon/level.cpp
+    src/lemon/orderBook.cpp
+)
 add_library(lemon::lemon ALIAS lemon)
 
-target_compile_features(lemon INTERFACE cxx_std_20)
+target_compile_features(lemon PUBLIC cxx_std_20)
 
 target_include_directories(
   lemon
-  INTERFACE
+  PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(
   lemon
-  INTERFACE
+  PUBLIC
     Boost::headers
     Boost::json
     OpenSSL::Crypto
+)
+
+include(CTest)
+
+if(BUILD_TESTING)
+  add_executable(
+    lemon_price_level_snapshot_test
+    tests/price_level_snapshot_test.cpp
+  )
+
+  target_link_libraries(
+    lemon_price_level_snapshot_test
+    PRIVATE
+      lemon::lemon
+  )
+
+  add_test(
+    NAME price_level_snapshot
+    COMMAND lemon_price_level_snapshot_test
+  )
+endif()
+
+add_executable(
+  lemon_price_level_snapshot_example
+  examples/price_level_snapshot.cpp
+)
+
+target_link_libraries(
+  lemon_price_level_snapshot_example
+  PRIVATE
+    lemon::lemon
 )
 
 install(
