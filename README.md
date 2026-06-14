@@ -1,6 +1,6 @@
 # Lemon
 
-![Lemon](img/lemon.png)
+<!-- ![Lemon](img/lemon.png) -->
 
 Lemon is an early-stage C++ order book library focused on representing market state at a point in time. The current implementation is centered on orders, price levels, snapshots, and checksum-backed snapshot packages.
 

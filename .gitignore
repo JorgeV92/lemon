@@ -1,0 +1,56 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+Testing/
+install_manifest.txt
+compile_commands.json
+lemonConfig.cmake
+lemonConfigVersion.cmake
+
+# Compiled objects and libraries
+*.o
+*.obj
+*.lo
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.d
+
+# Test and coverage output
+*.gcda
+*.gcno
+*.gcov
+coverage/
+lcov.info
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.xcworkspace/
+*.xcodeproj/
+
+# OS metadata
+.DS_Store
+Thumbs.db
