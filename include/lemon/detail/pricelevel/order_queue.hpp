@@ -329,6 +329,23 @@ public:
     return result;
   }
 
+  void snapshot_by_sequence_into(
+    std::vector<std::shared_ptr<OrderType>>& result
+  ) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    result.clear();
+    result.reserve(orders_.size());
+
+    for (const auto& [sequence, order_id] : index_) {
+      const auto it = orders_.find(order_id);
+      if (it != orders_.end() &&
+          it->second.sequence == sequence &&
+          it->second.order) {
+        result.push_back(it->second.order);
+      }
+    }
+  }
+
   std::vector<std::shared_ptr<OrderType>> to_vec() const {
     return snapshot_vec();
   }

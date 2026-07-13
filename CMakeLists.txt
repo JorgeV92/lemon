@@ -88,6 +88,22 @@ if(BUILD_TESTING)
     NAME order_type_variant
     COMMAND lemon_order_type_variant_test
   )
+
+  add_executable(
+    lemon_price_level_test
+    tests/price_level_test.cpp
+  )
+
+  target_link_libraries(
+    lemon_price_level_test
+    PRIVATE
+      lemon::lemon
+  )
+
+  add_test(
+    NAME price_level
+    COMMAND lemon_price_level_test
+  )
 endif()
 
 add_executable(
@@ -123,6 +139,17 @@ target_link_libraries(
     lemon::lemon
 )
 
+add_executable(
+  lemon_price_level_matching_example
+  examples/price_level_matching.cpp
+)
+
+target_link_libraries(
+  lemon_price_level_matching_example
+  PRIVATE
+    lemon::lemon
+)
+
 if(BUILD_TESTING)
   add_test(
     NAME example_order_variants
@@ -137,6 +164,11 @@ if(BUILD_TESTING)
   add_test(
     NAME example_price_level_snapshot
     COMMAND lemon_price_level_snapshot_example
+  )
+
+  add_test(
+    NAME example_price_level_matching
+    COMMAND lemon_price_level_matching_example
   )
 endif()
 
