@@ -101,6 +101,45 @@ target_link_libraries(
     lemon::lemon
 )
 
+add_executable(
+  lemon_order_variants_example
+  examples/order_variants.cpp
+)
+
+target_link_libraries(
+  lemon_order_variants_example
+  PRIVATE
+    lemon::lemon
+)
+
+add_executable(
+  lemon_order_queue_matching_example
+  examples/order_queue_matching.cpp
+)
+
+target_link_libraries(
+  lemon_order_queue_matching_example
+  PRIVATE
+    lemon::lemon
+)
+
+if(BUILD_TESTING)
+  add_test(
+    NAME example_order_variants
+    COMMAND lemon_order_variants_example
+  )
+
+  add_test(
+    NAME example_order_queue_matching
+    COMMAND lemon_order_queue_matching_example
+  )
+
+  add_test(
+    NAME example_price_level_snapshot
+    COMMAND lemon_price_level_snapshot_example
+  )
+endif()
+
 install(
   TARGETS lemon
   EXPORT lemonTargets
