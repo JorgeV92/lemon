@@ -171,21 +171,57 @@ public:
   }
 
 private:
+  static std::string user_hash_to_hex(const UserHash& user_hash) {
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (const std::uint8_t byte : user_hash) {
+      stream << std::setw(2) << static_cast<unsigned int>(byte);
+    }
+    return stream.str();
+  }
+
   static boost::json::object order_to_json(const OrderType& order) {
     boost::json::object json{
       {"id", order.get_id()},
+      {"kind", std::string{to_string(order.kind())}},
       {"side", order.is_buy() ? "buy" : "sell"},
       {"price", order.get_price().value()},
       {"quantity", order.get_quantity().value()},
       {"visible_quantity", order.get_visible_quantity().value()},
       {"hidden_quantity", order.get_hidden_quantity().value()},
       {"timestamp", order.get_timestamp()},
-      {"time_in_force", std::string{order.get_time_in_force().to_string()}}
+      {"time_in_force", std::string{order.get_time_in_force().to_string()}},
+      {"user_id", user_hash_to_hex(order.get_user_id())}
     };
 
     if (const auto expires_at = order.get_expires_at()) {
       json["expires_at"] = *expires_at;
     }
+
+    std::visit(
+      [&json](const auto& variant) {
+        using T = std::decay_t<decltype(variant)>;
+        if constexpr (std::is_same_v<T, TrailingStopOrder>) {
+          json["trail_amount"] = variant.trail_amount.value();
+          json["last_reference_price"] =
+            variant.last_reference_price.value();
+        } else if constexpr (std::is_same_v<T, PeggedOrder>) {
+          json["reference_price_offset"] = variant.reference_price_offset;
+          json["reference_price_type"] =
+            std::string{to_string(variant.reference_price_type)};
+        } else if constexpr (std::is_same_v<T, ReserveOrder>) {
+          json["replenish_threshold"] =
+            variant.replenish_threshold.value();
+          if (variant.replenish_amount) {
+            json["replenish_amount"] = variant.replenish_amount->value();
+          } else {
+            json["replenish_amount"] = nullptr;
+          }
+          json["auto_replenish"] = variant.auto_replenish;
+        }
+      },
+      order.variant()
+    );
 
     return json;
   }

@@ -68,7 +68,10 @@ int main() {
 Working:
 
 - `Price` and `Quantity` value wrappers
-- `OrderType` construction and accessors
+- Variant-backed `OrderType` support for standard, iceberg, post-only,
+  trailing-stop, pegged, market-to-limit, and reserve orders
+- Per-order matchability, partial/full matching, resizing, and
+  iceberg/reserve replenishment
 - `OrderQueue` FIFO insertion/removal, deterministic sequence ordering,
   priority-preserving and tail replacement, and locked front mutation
 - `PriceLevelSnapshot` aggregate refresh

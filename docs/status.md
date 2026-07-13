@@ -5,7 +5,10 @@ This document tracks what currently works and what is still scaffolded.
 ## Works
 
 - `Price` and `Quantity` value wrappers.
-- `OrderType` construction and read-only accessors.
+- Variant-backed `OrderType` construction and read-only accessors for standard,
+  iceberg, post-only, trailing-stop, pegged, market-to-limit, and reserve orders.
+- Per-order matchability, partial/full matching, resizing, and
+  iceberg/reserve replenishment.
 - Time-in-force policy helper methods.
 - `OrderQueue` construction, FIFO pop/removal, deterministic insertion-sequence
   ordering, priority-preserving and tail replacement, and locked front mutation.

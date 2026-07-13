@@ -72,6 +72,22 @@ if(BUILD_TESTING)
     NAME order_queue
     COMMAND lemon_order_queue_test
   )
+
+  add_executable(
+    lemon_order_type_variant_test
+    tests/order_type_variant_test.cpp
+  )
+
+  target_link_libraries(
+    lemon_order_type_variant_test
+    PRIVATE
+      lemon::lemon
+  )
+
+  add_test(
+    NAME order_type_variant
+    COMMAND lemon_order_type_variant_test
+  )
 endif()
 
 add_executable(
