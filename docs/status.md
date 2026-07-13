@@ -7,7 +7,8 @@ This document tracks what currently works and what is still scaffolded.
 - `Price` and `Quantity` value wrappers.
 - `OrderType` construction and read-only accessors.
 - Time-in-force policy helper methods.
-- `OrderQueue` construction from `std::vector<std::shared_ptr<OrderType>>`.
+- `OrderQueue` construction, FIFO pop/removal, deterministic insertion-sequence
+  ordering, priority-preserving and tail replacement, and locked front mutation.
 - `PriceLevelSnapshot` aggregate refresh for visible quantity, hidden quantity, and order count.
 - `PriceLevelSnapshotPackage` JSON serialization and SHA-256 checksum generation.
 - `PriceLevel::from_snapshot()` reconstruction for price, quantities, order count, and order queue state.

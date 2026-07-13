@@ -56,6 +56,22 @@ if(BUILD_TESTING)
     NAME price_level_snapshot
     COMMAND lemon_price_level_snapshot_test
   )
+
+  add_executable(
+    lemon_order_queue_test
+    tests/order_queue_test.cpp
+  )
+
+  target_link_libraries(
+    lemon_order_queue_test
+    PRIVATE
+      lemon::lemon
+  )
+
+  add_test(
+    NAME order_queue
+    COMMAND lemon_order_queue_test
+  )
 endif()
 
 add_executable(

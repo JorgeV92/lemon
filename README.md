@@ -69,7 +69,8 @@ Working:
 
 - `Price` and `Quantity` value wrappers
 - `OrderType` construction and accessors
-- `OrderQueue` construction from shared order pointers
+- `OrderQueue` FIFO insertion/removal, deterministic sequence ordering,
+  priority-preserving and tail replacement, and locked front mutation
 - `PriceLevelSnapshot` aggregate refresh
 - `PriceLevelSnapshotPackage` JSON serialization and SHA-256 checksums
 - `PriceLevel::from_snapshot`
