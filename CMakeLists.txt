@@ -11,6 +11,7 @@ include(CMakePackageConfigHelpers)
 
 find_package(Boost REQUIRED COMPONENTS json)
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 
 add_library(
   lemon
@@ -103,6 +104,23 @@ if(BUILD_TESTING)
   add_test(
     NAME price_level
     COMMAND lemon_price_level_test
+  )
+
+  add_executable(
+    lemon_price_level_invariant_test
+    tests/price_level_invariant_test.cpp
+  )
+
+  target_link_libraries(
+    lemon_price_level_invariant_test
+    PRIVATE
+      lemon::lemon
+      Threads::Threads
+  )
+
+  add_test(
+    NAME price_level_invariant
+    COMMAND lemon_price_level_invariant_test
   )
 endif()
 

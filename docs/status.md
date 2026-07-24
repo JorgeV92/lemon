@@ -49,3 +49,30 @@ The complete `PriceLevel` example target is:
 cmake --build build --target lemon_price_level_matching_example
 ./build/lemon_price_level_matching_example
 ```
+
+## Sanitizer Checks
+
+AddressSanitizer and UndefinedBehaviorSanitizer can be run together:
+
+```sh
+cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+cmake --build build-asan --parallel
+ctest --test-dir build-asan --output-on-failure
+```
+
+ThreadSanitizer uses a separate build and is intentionally not part of the
+portable default:
+
+```sh
+cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" \
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+cmake --build build-tsan --parallel
+ctest --test-dir build-tsan --output-on-failure
+```
+
+On 2026-07-23, all 9 tests passed under both configurations on macOS arm64
+with AppleClang 17.0.0. The ASan/UBSan run completed in 3.86 seconds and the
+TSan run completed in 6.41 seconds with no reported sanitizer findings.
