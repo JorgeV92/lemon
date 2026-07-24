@@ -201,7 +201,8 @@ void fill_or_kill_counts_hidden_iceberg_depth() {
   ));
   lemon::TradeIdGenerator trade_ids;
 
-  assert(level.matchable_quantity(lemon::Quantity{4}) == lemon::Quantity{4});
+  assert(level.matchable_quantity(lemon::Quantity{4}, 90) ==
+         lemon::Quantity{4});
   const auto result = level.match_order(
     lemon::Quantity{4},
     90,
@@ -426,6 +427,100 @@ void data_and_comparison_use_price_level_state() {
   assert(level < higher);
 }
 
+void self_match_is_rejected_without_mutation() {
+  const std::vector policies{
+    std::pair{
+      lemon::TimeInForcePolicy{},
+      lemon::TakerKind::Standard
+    },
+    std::pair{
+      lemon::TimeInForcePolicy{lemon::TimeInForce::FillOrKill},
+      lemon::TakerKind::Standard
+    },
+    std::pair{
+      lemon::TimeInForcePolicy{lemon::TimeInForce::ImmediateOrCancel},
+      lemon::TakerKind::Standard
+    },
+    std::pair{
+      lemon::TimeInForcePolicy{},
+      lemon::TakerKind::PostOnly
+    }
+  };
+
+  for (const auto& [time_in_force, taker_kind] : policies) {
+    lemon::PriceLevel level{lemon::Price{100}};
+    level.add_order(maker(1, 4, 100));
+    level.add_order(maker(2, 6, 101));
+    const std::string before = level.snapshot_to_json();
+    const auto statistics_before = level.stats()->snapshot();
+    lemon::TradeIdGenerator trade_ids{50};
+
+    const auto result = level.match_order(
+      lemon::Quantity{7},
+      1,
+      time_in_force,
+      taker_kind,
+      200,
+      trade_ids
+    );
+
+    assert(result.was_rejected());
+    assert(!result.was_killed());
+    assert(result.trades().empty());
+    assert(result.remaining_quantity() == lemon::Quantity{7});
+    assert(level.snapshot_to_json() == before);
+    assert(level.stats()->snapshot().orders_executed ==
+           statistics_before.orders_executed);
+    assert(level.stats()->snapshot().quantity_executed ==
+           statistics_before.quantity_executed);
+  }
+}
+
+void self_match_behind_another_maker_is_still_terminal() {
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(maker(2, 6, 100));
+  level.add_order(maker(1, 4, 101));
+  const std::string before = level.snapshot_to_json();
+  lemon::TradeIdGenerator trade_ids{50};
+
+  const auto result = level.match_order(
+    lemon::Quantity{6},
+    1,
+    lemon::TimeInForcePolicy{},
+    lemon::TakerKind::Standard,
+    200,
+    trade_ids
+  );
+
+  assert(result.was_rejected());
+  assert(result.trades().empty());
+  assert(level.snapshot_to_json() == before);
+}
+
+void matchable_quantity_skips_self_and_other_ids_match_normally() {
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(maker(1, 4, 100));
+  level.add_order(maker(2, 6, 101));
+
+  assert(level.matchable_quantity(lemon::Quantity{10}, 1) ==
+         lemon::Quantity{6});
+  assert(level.matchable_quantity(lemon::Quantity{10}, 99) ==
+         lemon::Quantity{10});
+
+  lemon::TradeIdGenerator trade_ids{50};
+  const auto result = level.match_order(
+    lemon::Quantity{4},
+    99,
+    lemon::TimeInForcePolicy{},
+    lemon::TakerKind::Standard,
+    200,
+    trade_ids
+  );
+  assert(result.is_complete());
+  assert(result.trades().size() == 1);
+  assert(result.trades().as_vector().front().maker_order_id() == 1);
+}
+
 } // namespace
 
 int main() {
@@ -439,5 +534,8 @@ int main() {
   snapshot_json_roundtrips_every_order_variant();
   snapshot_recovery_rejects_duplicate_order_ids();
   data_and_comparison_use_price_level_state();
+  self_match_is_rejected_without_mutation();
+  self_match_behind_another_maker_is_still_terminal();
+  matchable_quantity_skips_self_and_other_ids_match_normally();
   return 0;
 }

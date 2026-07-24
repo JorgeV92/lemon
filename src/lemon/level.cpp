@@ -201,7 +201,10 @@ bool PriceLevel::has_matchable_depth() const {
   return false;
 }
 
-Quantity PriceLevel::matchable_quantity(Quantity incoming_quantity) const {
+Quantity PriceLevel::matchable_quantity(
+  Quantity incoming_quantity,
+  OrderId taker_order_id
+) const {
   if (incoming_quantity == Quantity::zero()) {
     return Quantity::zero();
   }
@@ -218,6 +221,9 @@ Quantity PriceLevel::matchable_quantity(Quantity incoming_quantity) const {
     auto order = std::move(pending.front());
     pending.pop_front();
     if (!order) {
+      continue;
+    }
+    if (order->get_id() == taker_order_id) {
       continue;
     }
 
@@ -258,6 +264,14 @@ MatchResult PriceLevel::match_order(
 ) {
   std::lock_guard<std::mutex> match_lock(match_mutex_);
 
+  // Self-match rejection is terminal and takes precedence over taker policy.
+  // The level mutex makes the lookup and decision one atomic operation.
+  if (incoming_quantity.value() > 0 && orders_.find(taker_order_id)) {
+    MatchResult result{taker_order_id, incoming_quantity};
+    result.mark_rejected(incoming_quantity);
+    return result;
+  }
+
   if (taker_kind == TakerKind::PostOnly &&
       incoming_quantity.value() > 0 &&
       has_matchable_depth()) {
@@ -268,7 +282,8 @@ MatchResult PriceLevel::match_order(
 
   if (taker_time_in_force.type == TimeInForce::FillOrKill &&
       incoming_quantity.value() > 0 &&
-      matchable_quantity(incoming_quantity) < incoming_quantity) {
+      matchable_quantity(incoming_quantity, taker_order_id) <
+        incoming_quantity) {
     MatchResult result{taker_order_id, incoming_quantity};
     result.mark_killed(incoming_quantity);
     return result;
@@ -288,6 +303,7 @@ MatchResult PriceLevel::match_order(
 
   struct StepData {
     bool no_progress{};
+    bool self_match{};
     OrderMatchResult match{};
     OrderId maker_id{};
     Side maker_side{Side::Buy};
@@ -299,7 +315,18 @@ MatchResult PriceLevel::match_order(
   while (remaining > 0) {
     auto outcome = orders_.match_front(
       set_aside,
-      [remaining](InsertionSequence, const OrderType& maker) {
+      [remaining, taker_order_id](
+        InsertionSequence,
+        const OrderType& maker
+      ) {
+        // Defensive guard for future synchronization changes. Under the
+        // current level mutex, the initial lookup above catches this first.
+        if (maker.get_id() == taker_order_id) {
+          StepData step;
+          step.self_match = true;
+          return std::pair{FrontAction::set_aside(), std::move(step)};
+        }
+
         OrderMatchResult match = maker.match_against(remaining);
         const bool no_progress =
           match.consumed == 0 &&
@@ -309,6 +336,7 @@ MatchResult PriceLevel::match_order(
 
         StepData step{
           no_progress,
+          false,
           match,
           maker.get_id(),
           maker.get_side(),
@@ -345,6 +373,10 @@ MatchResult PriceLevel::match_order(
     }
 
     StepData step = std::move(*outcome);
+    if (step.self_match) {
+      result.mark_rejected(incoming_quantity);
+      return result;
+    }
     if (step.no_progress) {
       continue;
     }
@@ -357,7 +389,6 @@ MatchResult PriceLevel::match_order(
         "visible_quantity"
       );
 
-      assert(step.maker_id != taker_order_id);
       Trade trade{
         trade_id_generator.next(),
         taker_order_id,

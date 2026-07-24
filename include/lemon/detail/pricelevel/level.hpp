@@ -50,7 +50,10 @@ public:
     std::vector<std::shared_ptr<OrderType>>& result
   ) const;
 
-  Quantity matchable_quantity(Quantity incoming_quantity) const;
+  Quantity matchable_quantity(
+    Quantity incoming_quantity,
+    OrderId taker_order_id
+  ) const;
 
   MatchResult match_order(
     Quantity incoming_quantity,
