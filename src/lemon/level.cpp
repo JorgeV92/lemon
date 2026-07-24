@@ -578,9 +578,11 @@ std::optional<std::shared_ptr<OrderType>> PriceLevel::update_order(
 
 PriceLevelSnapshot PriceLevel::snapshot() const {
   std::lock_guard<std::mutex> match_lock(match_mutex_);
+  // Persistence order is matching order. The timestamp-oriented
+  // snapshot_orders() view is only for display and diagnostics.
   return PriceLevelSnapshot::with_orders_and_statistics(
     price_,
-    snapshot_orders(),
+    snapshot_by_insertion_sequence(),
     stats_->snapshot()
   );
 }

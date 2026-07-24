@@ -521,6 +521,93 @@ void matchable_quantity_skips_self_and_other_ids_match_normally() {
   assert(result.trades().as_vector().front().maker_order_id() == 1);
 }
 
+void snapshot_recovery_preserves_exact_consumption_order() {
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(maker(1, 5, 300));
+  level.add_order(maker(2, 5, 100));
+  level.add_order(maker(3, 5, 100));
+
+  // Multiple increases demote makers while their client timestamps remain
+  // unchanged. The resulting consumption order is C, A, B.
+  assert(level.update_order(
+    lemon::OrderUpdate::quantity(1, lemon::Quantity{8})
+  ));
+  assert(level.update_order(
+    lemon::OrderUpdate::quantity(2, lemon::Quantity{9})
+  ));
+  const std::vector<lemon::OrderId> expected{3, 1, 2};
+  assert(order_ids(level.snapshot_by_insertion_sequence()) == expected);
+
+  const auto snapshot = level.snapshot();
+  assert(order_ids(snapshot.orders()) == expected);
+  const lemon::PriceLevelSnapshotPackage package{snapshot};
+  package.validate();
+
+  const auto from_snapshot = lemon::PriceLevel::from_snapshot(snapshot);
+  auto from_json = lemon::PriceLevel::from_snapshot_json(
+    level.snapshot_to_json()
+  );
+  const auto from_data = lemon::PriceLevel::from_data(level.data());
+  assert(order_ids(from_snapshot.snapshot_by_insertion_sequence()) == expected);
+  assert(order_ids(from_json.snapshot_by_insertion_sequence()) == expected);
+  assert(order_ids(from_data.snapshot_by_insertion_sequence()) == expected);
+  assert(from_json.visible_quantity() == level.visible_quantity());
+  assert(from_json.hidden_quantity() == level.hidden_quantity());
+  assert(from_json.order_count() == level.order_count());
+
+  lemon::TradeIdGenerator trade_ids{70};
+  const auto result = from_json.match_order(
+    lemon::Quantity{1},
+    99,
+    lemon::TimeInForcePolicy{},
+    lemon::TakerKind::Standard,
+    400,
+    trade_ids
+  );
+  assert(result.trades().as_vector().front().maker_order_id() == 3);
+}
+
+void snapshot_recovery_preserves_replenishment_demotions() {
+  {
+    lemon::PriceLevel level{lemon::Price{100}};
+    level.add_order(lemon::OrderType::iceberg(
+      1, lemon::Side::Sell, lemon::Price{100},
+      lemon::Quantity{3}, lemon::Quantity{3}, 100
+    ));
+    level.add_order(maker(2, 4, 200));
+    lemon::TradeIdGenerator trade_ids{80};
+    static_cast<void>(level.match_order(
+      lemon::Quantity{3}, 90, {}, lemon::TakerKind::Standard, 300, trade_ids
+    ));
+    const std::vector<lemon::OrderId> expected{2, 1};
+    assert(order_ids(level.snapshot_by_insertion_sequence()) == expected);
+    const auto restored = lemon::PriceLevel::from_snapshot_json(
+      level.snapshot_to_json()
+    );
+    assert(order_ids(restored.snapshot_by_insertion_sequence()) == expected);
+  }
+
+  {
+    lemon::PriceLevel level{lemon::Price{100}};
+    level.add_order(lemon::OrderType::reserve(
+      1, lemon::Side::Sell, lemon::Price{100},
+      lemon::Quantity{3}, lemon::Quantity{4}, lemon::Quantity{2},
+      lemon::NonZeroQuantity{2}, true, 100
+    ));
+    level.add_order(maker(2, 4, 200));
+    lemon::TradeIdGenerator trade_ids{90};
+    static_cast<void>(level.match_order(
+      lemon::Quantity{3}, 91, {}, lemon::TakerKind::Standard, 300, trade_ids
+    ));
+    const std::vector<lemon::OrderId> expected{2, 1};
+    assert(order_ids(level.snapshot_by_insertion_sequence()) == expected);
+    const auto restored = lemon::PriceLevel::from_data(level.data());
+    assert(order_ids(restored.snapshot_by_insertion_sequence()) == expected);
+    assert(restored.visible_quantity() == level.visible_quantity());
+    assert(restored.hidden_quantity() == level.hidden_quantity());
+  }
+}
+
 } // namespace
 
 int main() {
@@ -537,5 +624,7 @@ int main() {
   self_match_is_rejected_without_mutation();
   self_match_behind_another_maker_is_still_terminal();
   matchable_quantity_skips_self_and_other_ids_match_normally();
+  snapshot_recovery_preserves_exact_consumption_order();
+  snapshot_recovery_preserves_replenishment_demotions();
   return 0;
 }
