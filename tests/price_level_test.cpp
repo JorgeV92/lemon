@@ -1059,6 +1059,33 @@ void legacy_v2_snapshot_remains_readable() {
   assert(!restored.stats_degraded());
 }
 
+void trade_id_exhaustion_does_not_mutate_the_level() {
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(maker(1, 3, 100));
+  const std::string before = level.snapshot_to_json();
+  lemon::TradeIdGenerator exhausted{
+    std::numeric_limits<lemon::TradeId>::max()
+  };
+
+  bool rejected = false;
+  try {
+    static_cast<void>(level.match_order(
+      lemon::Quantity{1},
+      99,
+      {},
+      lemon::TakerKind::Standard,
+      200,
+      exhausted
+    ));
+  } catch (const lemon::PriceLevelError&) {
+    rejected = true;
+  }
+  assert(rejected);
+  assert(level.snapshot_to_json() == before);
+  assert(level.visible_quantity() == lemon::Quantity{3});
+  assert(level.order_count() == 1);
+}
+
 } // namespace
 
 int main() {
@@ -1090,5 +1117,6 @@ int main() {
   statistics_validate_waiting_time_and_keep_timestamp_monotonic();
   degraded_statistics_preserve_trade_and_roundtrip();
   legacy_v2_snapshot_remains_readable();
+  trade_id_exhaustion_does_not_mutate_the_level();
   return 0;
 }

@@ -381,10 +381,14 @@ MatchResult PriceLevel::match_order(
     return result;
   }
 
-  const std::size_t capacity = std::min(
-    static_cast<std::size_t>(incoming_quantity.value()),
-    order_count()
-  );
+  if (incoming_quantity.value() >
+      std::numeric_limits<std::size_t>::max()) {
+    throw PriceLevelError("incoming quantity exceeds result capacity");
+  }
+  // Every emitted trade consumes at least one unit. Reserving the full upper
+  // bound makes later result insertion non-allocating after queue mutation.
+  const std::size_t capacity =
+    static_cast<std::size_t>(incoming_quantity.value());
   MatchResult result = MatchResult::with_capacity(
     taker_order_id,
     incoming_quantity,
@@ -403,6 +407,8 @@ MatchResult PriceLevel::match_order(
     Price maker_price{};
     TimestampMs maker_timestamp{};
     std::uint64_t hidden_stranded{};
+    bool has_trade{};
+    Trade trade{};
   };
 
   while (remaining > 0) {
@@ -410,7 +416,14 @@ MatchResult PriceLevel::match_order(
       visible_quantity_.load(std::memory_order_relaxed);
     auto outcome = orders_.match_front(
       set_aside,
-      [remaining, taker_order_id, current_visible](
+      [
+        remaining,
+        taker_order_id,
+        current_visible,
+        timestamp,
+        &trade_id_generator,
+        this
+      ](
         InsertionSequence,
         const OrderType& maker
       ) {
@@ -440,7 +453,9 @@ MatchResult PriceLevel::match_order(
           maker.get_timestamp(),
           !match.updated_order && match.hidden_reduced == 0
             ? maker.get_hidden_quantity().value()
-            : 0
+            : 0,
+          false,
+          Trade{}
         };
 
         if (no_progress) {
@@ -456,6 +471,21 @@ MatchResult PriceLevel::match_order(
             )) {
           step.aborted = true;
           return std::pair{FrontAction::abort(), std::move(step)};
+        }
+
+        if (match.consumed > 0) {
+          // Generate the ID before OrderQueue commits the action. Exhaustion
+          // therefore leaves the maker, counters, and result unchanged.
+          step.trade = Trade{
+            trade_id_generator.next(),
+            taker_order_id,
+            maker.get_id(),
+            price_,
+            Quantity{match.consumed},
+            maker.get_side() == Side::Buy ? Side::Sell : Side::Buy,
+            timestamp
+          };
+          step.has_trade = true;
         }
 
         if (!match.updated_order) {
@@ -493,23 +523,14 @@ MatchResult PriceLevel::match_order(
     }
 
     const bool fully_consumed = !step.match.updated_order.has_value();
-    if (step.match.consumed > 0) {
+    if (step.has_trade) {
       subtract_checked(
         visible_quantity_,
         step.match.consumed,
         "visible_quantity"
       );
 
-      Trade trade{
-        trade_id_generator.next(),
-        taker_order_id,
-        step.maker_id,
-        price_,
-        Quantity{step.match.consumed},
-        step.maker_side == Side::Buy ? Side::Sell : Side::Buy,
-        timestamp
-      };
-      result.add_trade(std::move(trade));
+      result.add_trade(std::move(step.trade));
 
       if (fully_consumed) {
         result.add_filled_order_id(step.maker_id);
