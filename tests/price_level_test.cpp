@@ -834,6 +834,116 @@ void admission_validation_precedes_duplicate_detection() {
   assert(reported_price);
 }
 
+void replenishment_overflow_aborts_without_bypassing_front() {
+  constexpr std::uint64_t maximum =
+    std::numeric_limits<std::uint64_t>::max();
+
+  for (const lemon::TimeInForce time_in_force : {
+         lemon::TimeInForce::GoodTillCanceled,
+         lemon::TimeInForce::ImmediateOrCancel
+       }) {
+    lemon::PriceLevel level{lemon::Price{100}};
+    level.add_order(lemon::OrderType::reserve(
+      1, lemon::Side::Sell, lemon::Price{100},
+      lemon::Quantity{1}, lemon::Quantity{100}, lemon::Quantity{1},
+      lemon::NonZeroQuantity{100}, true, 100
+    ));
+    level.add_order(maker(2, maximum - 2, 101));
+    const auto before = level.snapshot_by_insertion_sequence();
+    lemon::TradeIdGenerator trade_ids{200};
+
+    const auto result = level.match_order(
+      lemon::Quantity{2},
+      99,
+      lemon::TimeInForcePolicy{time_in_force},
+      lemon::TakerKind::Standard,
+      200,
+      trade_ids
+    );
+
+    assert(result.trades().empty());
+    assert(result.remaining_quantity() == lemon::Quantity{2});
+    assert(level.visible_quantity() == lemon::Quantity{maximum - 1});
+    assert(level.hidden_quantity() == lemon::Quantity{100});
+    assert(order_ids(level.snapshot_by_insertion_sequence()) ==
+           (std::vector<lemon::OrderId>{1, 2}));
+    const auto after = level.snapshot_by_insertion_sequence();
+    assert(after[0]->get_visible_quantity() ==
+           before[0]->get_visible_quantity());
+    assert(after[0]->get_hidden_quantity() ==
+           before[0]->get_hidden_quantity());
+  }
+
+  // A zero-visible iceberg can also attempt a hidden-to-visible jump.
+  lemon::PriceLevel iceberg_level{lemon::Price{100}};
+  iceberg_level.add_order(lemon::OrderType::iceberg(
+    1, lemon::Side::Sell, lemon::Price{100},
+    lemon::Quantity::zero(), lemon::Quantity{100}, 100
+  ));
+  iceberg_level.add_order(maker(2, maximum - 50, 101));
+  lemon::TradeIdGenerator iceberg_trade_ids{300};
+  const auto iceberg_result = iceberg_level.match_order(
+    lemon::Quantity{2}, 99, {}, lemon::TakerKind::Standard, 200,
+    iceberg_trade_ids
+  );
+  assert(iceberg_result.trades().empty());
+  assert(iceberg_result.remaining_quantity() == lemon::Quantity{2});
+  assert(iceberg_level.hidden_quantity() == lemon::Quantity{100});
+  assert(order_ids(iceberg_level.snapshot_by_insertion_sequence()) ==
+         (std::vector<lemon::OrderId>{1, 2}));
+}
+
+void fok_dry_run_models_replenishment_headroom() {
+  constexpr std::uint64_t maximum =
+    std::numeric_limits<std::uint64_t>::max();
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(lemon::OrderType::reserve(
+    1, lemon::Side::Sell, lemon::Price{100},
+    lemon::Quantity{1}, lemon::Quantity{100}, lemon::Quantity{1},
+    lemon::NonZeroQuantity{100}, true, 100
+  ));
+  level.add_order(maker(2, maximum - 2, 101));
+
+  assert(level.matchable_quantity(lemon::Quantity{2}, 99) ==
+         lemon::Quantity::zero());
+  lemon::TradeIdGenerator trade_ids{400};
+  const auto result = level.match_order(
+    lemon::Quantity{2},
+    99,
+    lemon::TimeInForcePolicy{lemon::TimeInForce::FillOrKill},
+    lemon::TakerKind::Standard,
+    200,
+    trade_ids
+  );
+  assert(result.was_killed());
+  assert(result.trades().empty());
+  assert(level.visible_quantity() == lemon::Quantity{maximum - 1});
+  assert(level.hidden_quantity() == lemon::Quantity{100});
+}
+
+void replenishment_at_representable_boundary_succeeds() {
+  constexpr std::uint64_t maximum =
+    std::numeric_limits<std::uint64_t>::max();
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(lemon::OrderType::reserve(
+    1, lemon::Side::Sell, lemon::Price{100},
+    lemon::Quantity{1}, lemon::Quantity{100}, lemon::Quantity{1},
+    lemon::NonZeroQuantity{100}, true, 100
+  ));
+  level.add_order(maker(2, maximum - 100, 101));
+  lemon::TradeIdGenerator trade_ids{500};
+
+  const auto result = level.match_order(
+    lemon::Quantity{1}, 99, {}, lemon::TakerKind::Standard, 200, trade_ids
+  );
+  assert(result.is_complete());
+  assert(result.trades().size() == 1);
+  assert(level.visible_quantity() == lemon::Quantity{maximum});
+  assert(level.hidden_quantity() == lemon::Quantity::zero());
+  assert(order_ids(level.snapshot_by_insertion_sequence()) ==
+         (std::vector<lemon::OrderId>{2, 1}));
+}
+
 } // namespace
 
 int main() {
@@ -858,5 +968,8 @@ int main() {
   admission_rejects_quantity_overflow_before_publication();
   failed_quantity_update_has_strong_exception_guarantee();
   admission_validation_precedes_duplicate_detection();
+  replenishment_overflow_aborts_without_bypassing_front();
+  fok_dry_run_models_replenishment_headroom();
+  replenishment_at_representable_boundary_succeeds();
   return 0;
 }

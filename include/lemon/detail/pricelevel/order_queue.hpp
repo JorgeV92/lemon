@@ -31,7 +31,8 @@ public:
     Remove,
     KeepInPlace,
     ReplaceAtTail,
-    SetAside
+    SetAside,
+    Abort
   };
 
   static FrontAction remove() {
@@ -48,6 +49,10 @@ public:
 
   static FrontAction set_aside() {
     return FrontAction{Kind::SetAside, nullptr};
+  }
+
+  static FrontAction abort() {
+    return FrontAction{Kind::Abort, nullptr};
   }
 
   Kind kind() const {
@@ -263,6 +268,10 @@ public:
 
         case FrontAction::Kind::SetAside:
           set_aside.insert(sequence);
+          break;
+
+        case FrontAction::Kind::Abort:
+          // Deliberately leave the FIFO-front maker and both indexes intact.
           break;
       }
 

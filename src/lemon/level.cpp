@@ -39,6 +39,24 @@ std::uint64_t checked_replacement_total(
   return without_old + new_value;
 }
 
+bool replenishment_transition_fits(
+  std::uint64_t current_visible,
+  std::uint64_t consumed,
+  std::uint64_t hidden_reduced,
+  std::uint64_t& resulting_visible
+) {
+  if (consumed > current_visible) {
+    return false;
+  }
+  const std::uint64_t after_consumption = current_visible - consumed;
+  if (hidden_reduced >
+      std::numeric_limits<std::uint64_t>::max() - after_consumption) {
+    return false;
+  }
+  resulting_visible = after_consumption + hidden_reduced;
+  return true;
+}
+
 TakerKind taker_kind_for(const OrderType& order) {
   if (order.kind() == OrderKind::PostOnly) {
     return TakerKind::PostOnly;
@@ -272,6 +290,8 @@ Quantity PriceLevel::matchable_quantity(
 
   std::uint64_t remaining = incoming_quantity.value();
   std::uint64_t filled = 0;
+  std::uint64_t simulated_visible =
+    visible_quantity_.load(std::memory_order_relaxed);
 
   while (remaining > 0 && !pending.empty()) {
     auto order = std::move(pending.front());
@@ -290,6 +310,18 @@ Quantity PriceLevel::matchable_quantity(
         match.updated_order.has_value()) {
       continue;
     }
+
+    std::uint64_t resulting_visible = 0;
+    if (!replenishment_transition_fits(
+          simulated_visible,
+          match.consumed,
+          match.hidden_reduced,
+          resulting_visible
+        )) {
+      // The real sweep must stop at this FIFO-front maker too.
+      break;
+    }
+    simulated_visible = resulting_visible;
 
     if (match.consumed > std::numeric_limits<std::uint64_t>::max() - filled) {
       throw PriceLevelError("matchable quantity overflow");
@@ -360,6 +392,7 @@ MatchResult PriceLevel::match_order(
   struct StepData {
     bool no_progress{};
     bool self_match{};
+    bool aborted{};
     OrderMatchResult match{};
     OrderId maker_id{};
     Side maker_side{Side::Buy};
@@ -369,9 +402,11 @@ MatchResult PriceLevel::match_order(
   };
 
   while (remaining > 0) {
+    const std::uint64_t current_visible =
+      visible_quantity_.load(std::memory_order_relaxed);
     auto outcome = orders_.match_front(
       set_aside,
-      [remaining, taker_order_id](
+      [remaining, taker_order_id, current_visible](
         InsertionSequence,
         const OrderType& maker
       ) {
@@ -393,6 +428,7 @@ MatchResult PriceLevel::match_order(
         StepData step{
           no_progress,
           false,
+          false,
           match,
           maker.get_id(),
           maker.get_side(),
@@ -406,6 +442,18 @@ MatchResult PriceLevel::match_order(
         if (no_progress) {
           return std::pair{FrontAction::set_aside(), std::move(step)};
         }
+
+        std::uint64_t resulting_visible = 0;
+        if (!replenishment_transition_fits(
+              current_visible,
+              match.consumed,
+              match.hidden_reduced,
+              resulting_visible
+            )) {
+          step.aborted = true;
+          return std::pair{FrontAction::abort(), std::move(step)};
+        }
+
         if (!match.updated_order) {
           return std::pair{FrontAction::remove(), std::move(step)};
         }
@@ -432,6 +480,9 @@ MatchResult PriceLevel::match_order(
     if (step.self_match) {
       result.mark_rejected(incoming_quantity);
       return result;
+    }
+    if (step.aborted) {
+      break;
     }
     if (step.no_progress) {
       continue;
