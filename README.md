@@ -297,9 +297,11 @@ inserts it into the destination `PriceLevel`. Missing IDs return
 `std::nullopt`.
 
 `iter_orders()` and `snapshot_by_insertion_sequence()` expose FIFO order.
-`snapshot_orders()` exposes deterministic persistence order, sorted by
-timestamp and then insertion sequence. `matchable_quantity()` performs a
-non-mutating depth calculation and is also used by fill-or-kill matching.
+`snapshot_orders()` exposes a timestamp-oriented display view. Persistence uses
+insertion/consumption order so demotions survive recovery.
+`matchable_quantity(quantity, taker_id)` performs a non-mutating depth
+calculation, excludes the taker's own resting ID, and is also used by
+fill-or-kill matching.
 
 ### Snapshots and statistics
 
@@ -314,7 +316,50 @@ SHA-256 checksum is verified before packaged data is accepted.
 
 Statistics include orders added/removed/executed, executed quantity and value,
 first arrival, last execution, and cumulative maker waiting time. The
-statistics object is available through `level.stats()`.
+statistics object is available through `level.stats()`. Execution updates are
+transactional; an unrecordable contribution sets the sticky
+`stats_degraded()` indicator without invalidating an already committed trade.
+
+## PriceLevel correctness and Rust comparison
+
+Lemon's behavioral reference is
+[`joaquinbejar/PriceLevel`](https://github.com/joaquinbejar/PriceLevel), pinned
+at `5ee60e66378d5aa861a07e573bee19a6d48b4e97`. The hardening work adds terminal
+self-match rejection, exact FIFO snapshot recovery, price/side topology
+validation, checked admission/update/replenishment transitions, strongly safe
+quantity updates, and transactional degradation-aware statistics.
+
+Reproduce the optimized C++ and Rust run with:
+
+```sh
+scripts/run_pricelevel_benchmarks.sh
+```
+
+The recorded run used 500 operations, depth 256, one warmup, and five measured
+trials on an 8-core Apple M1 iMac with 8 GB RAM, macOS 26.0.1, AppleClang
+17.0.0, CMake 4.0.1, Rust 1.88.0, and Cargo 1.88.0. Values are median
+operations/second:
+
+| Workload | Lemon C++ | Rust PriceLevel | C++ / Rust |
+| --- | ---: | ---: | ---: |
+| Standard admission | 5,736,116 | 4,629,630 | 1.24× |
+| FIFO standard matching | 4,360,564 | 1,915,809 | 2.28× |
+| Partial fills | 7,100,659 | 2,969,562 | 2.39× |
+| Iceberg replenishment | 3,105,590 | 743,034 | 4.18× |
+| Cancellation | 4,325,858 | 1,218,398 | 3.55× |
+| Quantity decrease | 4,194,349 | 3,379,315 | 1.24× |
+| Quantity increase | 2,897,157 | 2,129,925 | 1.36× |
+| Snapshot serialization | 517 | 805 | 0.64× |
+| Snapshot restoration | 920 | 1,704 | 0.54× |
+| Mixed single-thread | 11,115 | 20,542 | 0.54× |
+
+In this run Lemon led the mutation-focused microbenchmarks, while Rust led
+snapshot and mixed-workload throughput. Different languages, allocators, ID
+representations, and synchronization architectures materially affect the
+comparison; these machine-specific results are not universal performance
+claims. Raw JSON, environment metadata, methodology, and the generated table
+are in [`benchmarks/results`](benchmarks/results). See
+[`docs/PRICELEVEL_PARITY.md`](docs/PRICELEVEL_PARITY.md) for remaining gaps.
 
 ## How OrderBook fits around PriceLevel
 

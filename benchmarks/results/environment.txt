@@ -13,7 +13,7 @@ cmake version 4.0.1
 CMake suite maintained and supported by Kitware (kitware.com/cmake).
 rustc 1.88.0 (6b00bc388 2025-06-23) (Homebrew)
 cargo 1.88.0 (Homebrew)
-71668a3203eca953cf3f8aba9df5b3daa111f1cf
+lemon_git_sha: 8f1511146beb815ae94bf3841b298a36ec4c052f
 rust_pricelevel_sha: 5ee60e66378d5aa861a07e573bee19a6d48b4e97
 cpp_build: Release
 rust_profile: release (thin LTO, codegen-units=1)
