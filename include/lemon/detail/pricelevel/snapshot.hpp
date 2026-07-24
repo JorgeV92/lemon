@@ -24,7 +24,8 @@
 
 namespace lemon {
 
-inline constexpr std::uint32_t snapshot_format_version = 2;
+inline constexpr std::uint32_t snapshot_format_version = 3;
+inline constexpr std::uint32_t legacy_snapshot_format_version = 2;
 
 class PriceLevelSnapshot {
 public:
@@ -209,7 +210,7 @@ public:
   boost::json::object to_json() const {
     return boost::json::object{
       {"version", version_},
-      {"snapshot", snapshot_to_json(snapshot_)},
+      {"snapshot", snapshot_to_json(snapshot_, version_)},
       {"checksum", checksum_}
     };
   }
@@ -245,14 +246,17 @@ public:
   }
 
   void validate() const {
-    if (version_ != snapshot_format_version) {
+    if (version_ != snapshot_format_version &&
+        version_ != legacy_snapshot_format_version) {
       throw PriceLevelError(
         "unsupported snapshot version " + std::to_string(version_) +
-        "; expected " + std::to_string(snapshot_format_version)
+        "; supported versions are " +
+        std::to_string(legacy_snapshot_format_version) + " and " +
+        std::to_string(snapshot_format_version)
       );
     }
 
-    const std::string actual = compute_checksum(snapshot_);
+    const std::string actual = compute_checksum(snapshot_, version_);
     if (actual != checksum_) {
       throw PriceLevelError(
         "snapshot checksum mismatch: expected " + checksum_ +
@@ -266,8 +270,13 @@ public:
     return std::move(snapshot_);
   }
 
-  static std::string compute_checksum(const PriceLevelSnapshot& snapshot) {
-    const std::string payload = boost::json::serialize(snapshot_to_json(snapshot));
+  static std::string compute_checksum(
+    const PriceLevelSnapshot& snapshot,
+    std::uint32_t version = snapshot_format_version
+  ) {
+    const std::string payload = boost::json::serialize(
+      snapshot_to_json(snapshot, version)
+    );
     return sha256(payload);
   }
 
@@ -554,9 +563,10 @@ private:
   }
 
   static boost::json::object statistics_to_json(
-    const PriceLevelStatisticsData& statistics
+    const PriceLevelStatisticsData& statistics,
+    std::uint32_t version
   ) {
-    return boost::json::object{
+    boost::json::object result{
       {"orders_added", statistics.orders_added},
       {"orders_removed", statistics.orders_removed},
       {"orders_executed", statistics.orders_executed},
@@ -566,11 +576,23 @@ private:
       {"first_arrival_timestamp", statistics.first_arrival_timestamp},
       {"sum_waiting_time", statistics.sum_waiting_time}
     };
+    if (version >= snapshot_format_version) {
+      result["stats_degraded"] = statistics.stats_degraded;
+    }
+    return result;
   }
 
   static PriceLevelStatisticsData statistics_from_json(
     const boost::json::object& object
   ) {
+    bool degraded = false;
+    if (const auto* value = object.if_contains("stats_degraded")) {
+      if (!value->is_bool()) {
+        throw PriceLevelError("stats_degraded must be a boolean");
+      }
+      degraded = value->as_bool();
+    }
+
     return PriceLevelStatisticsData{
       require_uint(object, "orders_added"),
       require_uint(object, "orders_removed"),
@@ -579,12 +601,14 @@ private:
       require_uint(object, "value_executed"),
       require_uint(object, "last_execution_timestamp"),
       require_uint(object, "first_arrival_timestamp"),
-      require_uint(object, "sum_waiting_time")
+      require_uint(object, "sum_waiting_time"),
+      degraded
     };
   }
 
   static boost::json::object snapshot_to_json(
-    const PriceLevelSnapshot& snapshot
+    const PriceLevelSnapshot& snapshot,
+    std::uint32_t version
   ) {
     boost::json::array orders;
     orders.reserve(snapshot.orders().size());
@@ -600,7 +624,7 @@ private:
       {"hidden_quantity", snapshot.hidden_quantity().value()},
       {"order_count", snapshot.order_count()},
       {"orders", std::move(orders)},
-      {"statistics", statistics_to_json(snapshot.statistics())}
+      {"statistics", statistics_to_json(snapshot.statistics(), version)}
     };
   }
 

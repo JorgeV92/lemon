@@ -38,6 +38,7 @@ public:
   Quantity total_quantity() const;
   std::size_t order_count() const;
   std::shared_ptr<PriceLevelStatistics> stats() const;
+  bool stats_degraded() const;
 
   std::shared_ptr<OrderType> add_order(OrderType order);
 

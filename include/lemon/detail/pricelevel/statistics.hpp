@@ -1,9 +1,10 @@
 #pragma once
 
-#include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -20,6 +21,7 @@ struct PriceLevelStatisticsData {
   std::uint64_t last_execution_timestamp{};
   std::uint64_t first_arrival_timestamp{};
   std::uint64_t sum_waiting_time{};
+  bool stats_degraded{};
 };
 
 class PriceLevelStatistics {
@@ -28,15 +30,8 @@ public:
     : first_arrival_timestamp_(current_timestamp_ms()) {
   }
 
-  explicit PriceLevelStatistics(const PriceLevelStatisticsData& data)
-    : orders_added_(data.orders_added),
-      orders_removed_(data.orders_removed),
-      orders_executed_(data.orders_executed),
-      quantity_executed_(data.quantity_executed),
-      value_executed_(data.value_executed),
-      last_execution_timestamp_(data.last_execution_timestamp),
-      first_arrival_timestamp_(data.first_arrival_timestamp),
-      sum_waiting_time_(data.sum_waiting_time) {
+  explicit PriceLevelStatistics(const PriceLevelStatisticsData& data) {
+    restore(data);
   }
 
   PriceLevelStatistics(const PriceLevelStatistics& other)
@@ -51,11 +46,21 @@ public:
   }
 
   void record_order_added() {
-    checked_increment(orders_added_, "orders_added");
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (orders_added_ == std::numeric_limits<std::uint64_t>::max()) {
+      stats_degraded_ = true;
+      return;
+    }
+    ++orders_added_;
   }
 
   void record_order_removed() {
-    checked_increment(orders_removed_, "orders_removed");
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (orders_removed_ == std::numeric_limits<std::uint64_t>::max()) {
+      stats_degraded_ = true;
+      return;
+    }
+    ++orders_removed_;
   }
 
   void record_execution(
@@ -64,77 +69,109 @@ public:
     std::uint64_t order_timestamp,
     std::uint64_t execution_timestamp
   ) {
-    if (order_timestamp > execution_timestamp && order_timestamp != 0) {
-      throw PriceLevelError("maker timestamp is later than execution timestamp");
-    }
-    if (quantity != 0 && price > std::numeric_limits<std::uint64_t>::max() / quantity) {
-      throw PriceLevelError("executed value overflow");
-    }
+    std::lock_guard<std::mutex> lock(mutex_);
 
-    const std::uint64_t value = price * quantity;
-    const std::uint64_t waiting_time = order_timestamp == 0
-      ? 0
-      : execution_timestamp - order_timestamp;
+    try {
+      if (order_timestamp > execution_timestamp && order_timestamp != 0) {
+        throw PriceLevelError(
+          "maker timestamp is later than execution timestamp"
+        );
+      }
+      if (quantity != 0 &&
+          price > std::numeric_limits<std::uint64_t>::max() / quantity) {
+        throw PriceLevelError("executed value overflow");
+      }
 
-    checked_increment(orders_executed_, "orders_executed");
-    checked_add(quantity_executed_, quantity, "quantity_executed");
-    checked_add(value_executed_, value, "value_executed");
-    checked_add(sum_waiting_time_, waiting_time, "sum_waiting_time");
-    last_execution_timestamp_.store(execution_timestamp, std::memory_order_relaxed);
+      const std::uint64_t value = price * quantity;
+      const std::uint64_t waiting_time = order_timestamp == 0
+        ? 0
+        : execution_timestamp - order_timestamp;
+
+      // Derive every field first. No statistics field changes unless all
+      // checked arithmetic succeeds.
+      const std::uint64_t orders_executed = checked_sum(
+        orders_executed_, 1, "orders_executed"
+      );
+      const std::uint64_t quantity_executed = checked_sum(
+        quantity_executed_, quantity, "quantity_executed"
+      );
+      const std::uint64_t value_executed = checked_sum(
+        value_executed_, value, "value_executed"
+      );
+      const std::uint64_t sum_waiting_time = checked_sum(
+        sum_waiting_time_, waiting_time, "sum_waiting_time"
+      );
+
+      orders_executed_ = orders_executed;
+      quantity_executed_ = quantity_executed;
+      value_executed_ = value_executed;
+      sum_waiting_time_ = sum_waiting_time;
+      last_execution_timestamp_ = std::max(
+        last_execution_timestamp_,
+        execution_timestamp
+      );
+    } catch (const PriceLevelError&) {
+      stats_degraded_ = true;
+      throw;
+    }
   }
 
   std::uint64_t orders_added() const {
-    return orders_added_.load(std::memory_order_relaxed);
+    return snapshot().orders_added;
   }
 
   std::uint64_t orders_removed() const {
-    return orders_removed_.load(std::memory_order_relaxed);
+    return snapshot().orders_removed;
   }
 
   std::uint64_t orders_executed() const {
-    return orders_executed_.load(std::memory_order_relaxed);
+    return snapshot().orders_executed;
   }
 
   std::uint64_t quantity_executed() const {
-    return quantity_executed_.load(std::memory_order_relaxed);
+    return snapshot().quantity_executed;
   }
 
   std::uint64_t value_executed() const {
-    return value_executed_.load(std::memory_order_relaxed);
+    return snapshot().value_executed;
   }
 
   std::uint64_t last_execution_timestamp() const {
-    return last_execution_timestamp_.load(std::memory_order_relaxed);
+    return snapshot().last_execution_timestamp;
   }
 
   std::uint64_t first_arrival_timestamp() const {
-    return first_arrival_timestamp_.load(std::memory_order_relaxed);
+    return snapshot().first_arrival_timestamp;
   }
 
   std::uint64_t sum_waiting_time() const {
-    return sum_waiting_time_.load(std::memory_order_relaxed);
+    return snapshot().sum_waiting_time;
+  }
+
+  bool stats_degraded() const {
+    return snapshot().stats_degraded;
   }
 
   std::optional<double> average_execution_price() const {
-    const std::uint64_t quantity = quantity_executed();
-    if (quantity == 0) {
+    const PriceLevelStatisticsData data = snapshot();
+    if (data.quantity_executed == 0) {
       return std::nullopt;
     }
-    return static_cast<double>(value_executed()) /
-           static_cast<double>(quantity);
+    return static_cast<double>(data.value_executed) /
+           static_cast<double>(data.quantity_executed);
   }
 
   std::optional<double> average_waiting_time() const {
-    const std::uint64_t count = orders_executed();
-    if (count == 0) {
+    const PriceLevelStatisticsData data = snapshot();
+    if (data.orders_executed == 0) {
       return std::nullopt;
     }
-    return static_cast<double>(sum_waiting_time()) /
-           static_cast<double>(count);
+    return static_cast<double>(data.sum_waiting_time) /
+           static_cast<double>(data.orders_executed);
   }
 
   std::optional<std::uint64_t> time_since_last_execution() const {
-    const std::uint64_t last = last_execution_timestamp();
+    const std::uint64_t last = snapshot().last_execution_timestamp;
     if (last == 0) {
       return std::nullopt;
     }
@@ -146,38 +183,36 @@ public:
   }
 
   PriceLevelStatisticsData snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return PriceLevelStatisticsData{
-      orders_added(),
-      orders_removed(),
-      orders_executed(),
-      quantity_executed(),
-      value_executed(),
-      last_execution_timestamp(),
-      first_arrival_timestamp(),
-      sum_waiting_time()
+      orders_added_,
+      orders_removed_,
+      orders_executed_,
+      quantity_executed_,
+      value_executed_,
+      last_execution_timestamp_,
+      first_arrival_timestamp_,
+      sum_waiting_time_,
+      stats_degraded_
     };
   }
 
   void restore(const PriceLevelStatisticsData& data) {
-    orders_added_.store(data.orders_added, std::memory_order_relaxed);
-    orders_removed_.store(data.orders_removed, std::memory_order_relaxed);
-    orders_executed_.store(data.orders_executed, std::memory_order_relaxed);
-    quantity_executed_.store(data.quantity_executed, std::memory_order_relaxed);
-    value_executed_.store(data.value_executed, std::memory_order_relaxed);
-    last_execution_timestamp_.store(
-      data.last_execution_timestamp,
-      std::memory_order_relaxed
-    );
-    first_arrival_timestamp_.store(
-      data.first_arrival_timestamp,
-      std::memory_order_relaxed
-    );
-    sum_waiting_time_.store(data.sum_waiting_time, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(mutex_);
+    orders_added_ = data.orders_added;
+    orders_removed_ = data.orders_removed;
+    orders_executed_ = data.orders_executed;
+    quantity_executed_ = data.quantity_executed;
+    value_executed_ = data.value_executed;
+    last_execution_timestamp_ = data.last_execution_timestamp;
+    first_arrival_timestamp_ = data.first_arrival_timestamp;
+    sum_waiting_time_ = data.sum_waiting_time;
+    stats_degraded_ = data.stats_degraded;
   }
 
   void reset() {
     restore(PriceLevelStatisticsData{
-      0, 0, 0, 0, 0, 0, current_timestamp_ms(), 0
+      0, 0, 0, 0, 0, 0, current_timestamp_ms(), 0, false
     });
   }
 
@@ -191,42 +226,27 @@ private:
     );
   }
 
-  static void checked_increment(
-    std::atomic<std::uint64_t>& target,
-    const char* field
-  ) {
-    checked_add(target, 1, field);
-  }
-
-  static void checked_add(
-    std::atomic<std::uint64_t>& target,
+  static std::uint64_t checked_sum(
+    std::uint64_t current,
     std::uint64_t value,
     const char* field
   ) {
-    std::uint64_t current = target.load(std::memory_order_relaxed);
-    while (true) {
-      if (value > std::numeric_limits<std::uint64_t>::max() - current) {
-        throw PriceLevelError(std::string{field} + " overflow");
-      }
-      if (target.compare_exchange_weak(
-            current,
-            current + value,
-            std::memory_order_relaxed,
-            std::memory_order_relaxed
-          )) {
-        return;
-      }
+    if (value > std::numeric_limits<std::uint64_t>::max() - current) {
+      throw PriceLevelError(std::string{field} + " overflow");
     }
+    return current + value;
   }
 
-  std::atomic<std::uint64_t> orders_added_{0};
-  std::atomic<std::uint64_t> orders_removed_{0};
-  std::atomic<std::uint64_t> orders_executed_{0};
-  std::atomic<std::uint64_t> quantity_executed_{0};
-  std::atomic<std::uint64_t> value_executed_{0};
-  std::atomic<std::uint64_t> last_execution_timestamp_{0};
-  std::atomic<std::uint64_t> first_arrival_timestamp_{0};
-  std::atomic<std::uint64_t> sum_waiting_time_{0};
+  mutable std::mutex mutex_;
+  std::uint64_t orders_added_{};
+  std::uint64_t orders_removed_{};
+  std::uint64_t orders_executed_{};
+  std::uint64_t quantity_executed_{};
+  std::uint64_t value_executed_{};
+  std::uint64_t last_execution_timestamp_{};
+  std::uint64_t first_arrival_timestamp_{};
+  std::uint64_t sum_waiting_time_{};
+  bool stats_degraded_{};
 };
 
 } // namespace lemon

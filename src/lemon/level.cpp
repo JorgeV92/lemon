@@ -204,6 +204,10 @@ std::shared_ptr<PriceLevelStatistics> PriceLevel::stats() const {
   return stats_;
 }
 
+bool PriceLevel::stats_degraded() const {
+  return stats_->stats_degraded();
+}
+
 std::shared_ptr<OrderType> PriceLevel::add_order(OrderType order) {
   std::lock_guard<std::mutex> match_lock(match_mutex_);
   // Validate everything that can fail before assigning queue priority or

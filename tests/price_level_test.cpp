@@ -278,7 +278,7 @@ void snapshot_json_roundtrip_validates_checksum_and_restores_statistics() {
   ));
 
   const std::string json = level.snapshot_to_json();
-  assert(json.find("\"version\":2") != std::string::npos);
+  assert(json.find("\"version\":3") != std::string::npos);
   assert(json.find("\"statistics\"") != std::string::npos);
 
   const lemon::PriceLevel restored = lemon::PriceLevel::from_snapshot_json(json);
@@ -306,8 +306,8 @@ void snapshot_json_roundtrip_validates_checksum_and_restores_statistics() {
 
   std::string bad_version = json;
   bad_version.replace(
-    bad_version.find("\"version\":2"),
-    std::string{"\"version\":2"}.size(),
+    bad_version.find("\"version\":3"),
+    std::string{"\"version\":3"}.size(),
     "\"version\":1"
   );
   bool version_rejected = false;
@@ -320,8 +320,8 @@ void snapshot_json_roundtrip_validates_checksum_and_restores_statistics() {
 
   std::string out_of_range_version = json;
   out_of_range_version.replace(
-    out_of_range_version.find("\"version\":2"),
-    std::string{"\"version\":2"}.size(),
+    out_of_range_version.find("\"version\":3"),
+    std::string{"\"version\":3"}.size(),
     "\"version\":4294967298"
   );
   bool range_rejected = false;
@@ -944,6 +944,121 @@ void replenishment_at_representable_boundary_succeeds() {
          (std::vector<lemon::OrderId>{2, 1}));
 }
 
+void execution_statistics_commit_transactionally_and_degrade() {
+  constexpr std::uint64_t maximum =
+    std::numeric_limits<std::uint64_t>::max();
+  lemon::PriceLevelStatistics statistics{
+    lemon::PriceLevelStatisticsData{
+      3, 2, 7, maximum, 11, 50, 1, 13, false
+    }
+  };
+  const auto before = statistics.snapshot();
+
+  bool overflow_reported = false;
+  try {
+    statistics.record_execution(1, 2, 0, 60);
+  } catch (const lemon::PriceLevelError&) {
+    overflow_reported = true;
+  }
+  assert(overflow_reported);
+  const auto after = statistics.snapshot();
+  assert(after.orders_executed == before.orders_executed);
+  assert(after.quantity_executed == before.quantity_executed);
+  assert(after.value_executed == before.value_executed);
+  assert(after.sum_waiting_time == before.sum_waiting_time);
+  assert(after.last_execution_timestamp == before.last_execution_timestamp);
+  assert(after.stats_degraded);
+
+  // The flag is sticky through later failures and clears only on reset.
+  try {
+    statistics.record_execution(2, maximum, 0, 70);
+  } catch (const lemon::PriceLevelError&) {
+  }
+  assert(statistics.stats_degraded());
+  statistics.reset();
+  assert(!statistics.stats_degraded());
+}
+
+void statistics_validate_waiting_time_and_keep_timestamp_monotonic() {
+  lemon::PriceLevelStatistics statistics;
+  statistics.record_execution(1, 100, 100, 200);
+  statistics.record_execution(1, 100, 0, 150);
+  assert(statistics.last_execution_timestamp() == 200);
+
+  bool future_timestamp_rejected = false;
+  try {
+    statistics.record_execution(1, 100, 300, 250);
+  } catch (const lemon::PriceLevelError&) {
+    future_timestamp_rejected = true;
+  }
+  assert(future_timestamp_rejected);
+  assert(statistics.orders_executed() == 2);
+  assert(statistics.stats_degraded());
+
+  lemon::PriceLevelStatistics waiting_overflow{
+    lemon::PriceLevelStatisticsData{
+      0, 0, 1, 1, 100, 100, 1,
+      std::numeric_limits<std::uint64_t>::max(), false
+    }
+  };
+  bool waiting_rejected = false;
+  try {
+    waiting_overflow.record_execution(1, 100, 100, 101);
+  } catch (const lemon::PriceLevelError&) {
+    waiting_rejected = true;
+  }
+  assert(waiting_rejected);
+  assert(waiting_overflow.orders_executed() == 1);
+  assert(waiting_overflow.stats_degraded());
+}
+
+void degraded_statistics_preserve_trade_and_roundtrip() {
+  constexpr std::uint64_t maximum =
+    std::numeric_limits<std::uint64_t>::max();
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(maker(1, 1, 100));
+  level.stats()->restore(lemon::PriceLevelStatisticsData{
+    1, 0, 4, maximum, 400, 150, 1, 10, false
+  });
+  lemon::TradeIdGenerator trade_ids{600};
+
+  const auto result = level.match_order(
+    lemon::Quantity{1}, 99, {}, lemon::TakerKind::Standard, 200, trade_ids
+  );
+  assert(result.trades().size() == 1);
+  assert(result.is_complete());
+  assert(level.stats_degraded());
+  assert(level.stats()->orders_executed() == 4);
+  assert(level.stats()->quantity_executed() == maximum);
+
+  const std::string json = level.snapshot_to_json();
+  assert(json.find("\"stats_degraded\":true") != std::string::npos);
+  const auto restored = lemon::PriceLevel::from_snapshot_json(json);
+  assert(restored.stats_degraded());
+  assert(restored.stats()->orders_executed() == 4);
+}
+
+void legacy_v2_snapshot_remains_readable() {
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(maker(1, 2, 100));
+  const auto snapshot = level.snapshot();
+  lemon::PriceLevelSnapshotPackage current{snapshot};
+  boost::json::object legacy = current.to_json();
+  legacy["version"] = lemon::legacy_snapshot_format_version;
+  auto& snapshot_json = legacy.at("snapshot").as_object();
+  snapshot_json.at("statistics").as_object().erase("stats_degraded");
+  legacy["checksum"] = lemon::PriceLevelSnapshotPackage::compute_checksum(
+    snapshot,
+    lemon::legacy_snapshot_format_version
+  );
+
+  const auto restored = lemon::PriceLevel::from_snapshot_json(
+    boost::json::serialize(legacy)
+  );
+  assert(restored.order_count() == 1);
+  assert(!restored.stats_degraded());
+}
+
 } // namespace
 
 int main() {
@@ -971,5 +1086,9 @@ int main() {
   replenishment_overflow_aborts_without_bypassing_front();
   fok_dry_run_models_replenishment_headroom();
   replenishment_at_representable_boundary_succeeds();
+  execution_statistics_commit_transactionally_and_degrade();
+  statistics_validate_waiting_time_and_keep_timestamp_monotonic();
+  degraded_statistics_preserve_trade_and_roundtrip();
+  legacy_v2_snapshot_remains_readable();
   return 0;
 }
