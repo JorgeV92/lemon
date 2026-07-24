@@ -1,0 +1,19 @@
+{
+  "implementation": "lemon-cpp",
+  "operations": 500,
+  "depth": 256,
+  "warmups": 1,
+  "trials": 5,
+  "results": [
+    {"name": "standard_admission", "median_ops_per_sec": 5736115.732, "min_ops_per_sec": 5263157.895, "max_ops_per_sec": 5830903.790, "median_bytes_per_sec": 0.000},
+    {"name": "fifo_standard_matching", "median_ops_per_sec": 4360564.148, "min_ops_per_sec": 4185331.720, "max_ops_per_sec": 4468337.639, "median_bytes_per_sec": 0.000},
+    {"name": "partial_fills", "median_ops_per_sec": 7100658.941, "min_ops_per_sec": 6932409.012, "max_ops_per_sec": 7207207.207, "median_bytes_per_sec": 0.000},
+    {"name": "iceberg_replenishment", "median_ops_per_sec": 3105590.062, "min_ops_per_sec": 3084040.093, "max_ops_per_sec": 3119307.264, "median_bytes_per_sec": 0.000},
+    {"name": "cancellation", "median_ops_per_sec": 4325858.250, "min_ops_per_sec": 4311906.035, "max_ops_per_sec": 4390779.363, "median_bytes_per_sec": 0.000},
+    {"name": "quantity_decrease", "median_ops_per_sec": 4194349.373, "min_ops_per_sec": 3028009.084, "max_ops_per_sec": 4210526.316, "median_bytes_per_sec": 0.000},
+    {"name": "quantity_increase", "median_ops_per_sec": 2897156.730, "min_ops_per_sec": 2872193.149, "max_ops_per_sec": 2925413.653, "median_bytes_per_sec": 0.000},
+    {"name": "snapshot_serialization", "median_ops_per_sec": 516.747, "min_ops_per_sec": 438.664, "max_ops_per_sec": 629.262, "median_bytes_per_sec": 31558253.024},
+    {"name": "snapshot_restoration", "median_ops_per_sec": 920.208, "min_ops_per_sec": 847.225, "max_ops_per_sec": 941.170, "median_bytes_per_sec": 56198039.864},
+    {"name": "mixed_single_thread", "median_ops_per_sec": 11115.485, "min_ops_per_sec": 9998.159, "max_ops_per_sec": 11232.484, "median_bytes_per_sec": 0.000}
+  ]
+}

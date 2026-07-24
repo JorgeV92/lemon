@@ -1,0 +1,19 @@
+{
+  "implementation": "pricelevel-rust",
+  "operations": 500,
+  "depth": 256,
+  "warmups": 1,
+  "trials": 5,
+  "results": [
+    {"name": "standard_admission", "median_ops_per_sec": 4629629.630, "min_ops_per_sec": 4368376.449, "max_ops_per_sec": 4866180.049, "median_bytes_per_sec": 0.000},
+    {"name": "fifo_standard_matching", "median_ops_per_sec": 1915809.167, "min_ops_per_sec": 1873741.995, "max_ops_per_sec": 1947375.227, "median_bytes_per_sec": 0.000},
+    {"name": "partial_fills", "median_ops_per_sec": 2969561.990, "min_ops_per_sec": 2886702.693, "max_ops_per_sec": 3007518.797, "median_bytes_per_sec": 0.000},
+    {"name": "iceberg_replenishment", "median_ops_per_sec": 743033.688, "min_ops_per_sec": 620732.464, "max_ops_per_sec": 1574803.150, "median_bytes_per_sec": 0.000},
+    {"name": "cancellation", "median_ops_per_sec": 1218397.807, "min_ops_per_sec": 1177856.302, "max_ops_per_sec": 2626395.272, "median_bytes_per_sec": 0.000},
+    {"name": "quantity_decrease", "median_ops_per_sec": 3379314.540, "min_ops_per_sec": 3321354.315, "max_ops_per_sec": 3464211.234, "median_bytes_per_sec": 0.000},
+    {"name": "quantity_increase", "median_ops_per_sec": 2129925.453, "min_ops_per_sec": 2091323.934, "max_ops_per_sec": 2147461.915, "median_bytes_per_sec": 0.000},
+    {"name": "snapshot_serialization", "median_ops_per_sec": 805.246, "min_ops_per_sec": 518.520, "max_ops_per_sec": 1104.760, "median_bytes_per_sec": 55404124.629},
+    {"name": "snapshot_restoration", "median_ops_per_sec": 1703.720, "min_ops_per_sec": 1104.453, "max_ops_per_sec": 1705.650, "median_bytes_per_sec": 117222732.392},
+    {"name": "mixed_single_thread", "median_ops_per_sec": 20542.176, "min_ops_per_sec": 20284.216, "max_ops_per_sec": 20742.548, "median_bytes_per_sec": 0.000}
+  ]
+}

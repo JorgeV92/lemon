@@ -1,0 +1,13 @@
+[package]
+name = "lemon-pricelevel-rust-baseline"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+pricelevel = { git = "https://github.com/joaquinbejar/PriceLevel", rev = "5ee60e66378d5aa861a07e573bee19a6d48b4e97" }
+uuid = { version = "1.23", features = ["v5"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

@@ -6,6 +6,8 @@ project(
   LANGUAGES CXX
 )
 
+option(LEMON_BUILD_BENCHMARKS "Build dependency-free benchmark executables" OFF)
+
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
@@ -121,6 +123,20 @@ if(BUILD_TESTING)
   add_test(
     NAME price_level_invariant
     COMMAND lemon_price_level_invariant_test
+  )
+endif()
+
+if(LEMON_BUILD_BENCHMARKS)
+  add_executable(
+    lemon_price_level_benchmark
+    benchmarks/price_level_benchmark.cpp
+  )
+
+  target_link_libraries(
+    lemon_price_level_benchmark
+    PRIVATE
+      lemon::lemon
+      Threads::Threads
   )
 endif()
 
