@@ -1,4 +1,5 @@
 #include <cassert>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -717,6 +718,122 @@ void snapshot_recovery_rejects_invalid_topology() {
   assert(mixed_side_rejected);
 }
 
+void admission_rejects_quantity_overflow_before_publication() {
+  constexpr std::uint64_t maximum =
+    std::numeric_limits<std::uint64_t>::max();
+
+  {
+    lemon::PriceLevel level{lemon::Price{100}};
+    bool rejected = false;
+    try {
+      level.add_order(lemon::OrderType::iceberg(
+        1, lemon::Side::Sell, lemon::Price{100},
+        lemon::Quantity{maximum}, lemon::Quantity{1}, 100
+      ));
+    } catch (const lemon::PriceLevelError&) {
+      rejected = true;
+    }
+    assert(rejected);
+    assert(level.order_count() == 0);
+    assert(level.stats()->orders_added() == 0);
+  }
+
+  {
+    const auto full = std::make_shared<lemon::OrderType>(
+      maker(1, maximum, 100)
+    );
+    lemon::PriceLevel level = lemon::PriceLevel::from_snapshot(
+      lemon::PriceLevelSnapshot::with_orders(lemon::Price{100}, {full})
+    );
+    bool rejected = false;
+    try {
+      level.add_order(maker(2, 1, 101));
+    } catch (const lemon::PriceLevelError&) {
+      rejected = true;
+    }
+    assert(rejected);
+    assert(level.visible_quantity() == lemon::Quantity{maximum});
+    assert(level.order_count() == 1);
+    assert(order_ids(level.snapshot_by_insertion_sequence()) ==
+           (std::vector<lemon::OrderId>{1}));
+  }
+
+  {
+    const auto full_hidden = std::make_shared<lemon::OrderType>(
+      lemon::OrderType::iceberg(
+        1, lemon::Side::Sell, lemon::Price{100},
+        lemon::Quantity::zero(), lemon::Quantity{maximum}, 100
+      )
+    );
+    lemon::PriceLevel level = lemon::PriceLevel::from_snapshot(
+      lemon::PriceLevelSnapshot::with_orders(
+        lemon::Price{100}, {full_hidden}
+      )
+    );
+    bool rejected = false;
+    try {
+      level.add_order(lemon::OrderType::iceberg(
+        2, lemon::Side::Sell, lemon::Price{100},
+        lemon::Quantity::zero(), lemon::Quantity{1}, 101
+      ));
+    } catch (const lemon::PriceLevelError&) {
+      rejected = true;
+    }
+    assert(rejected);
+    assert(level.hidden_quantity() == lemon::Quantity{maximum});
+    assert(level.order_count() == 1);
+  }
+}
+
+void failed_quantity_update_has_strong_exception_guarantee() {
+  constexpr std::uint64_t maximum =
+    std::numeric_limits<std::uint64_t>::max();
+  const auto first = std::make_shared<lemon::OrderType>(
+    maker(1, maximum - 10, 100)
+  );
+  const auto second = std::make_shared<lemon::OrderType>(maker(2, 5, 101));
+  lemon::PriceLevel level = lemon::PriceLevel::from_snapshot(
+    lemon::PriceLevelSnapshot::with_orders(
+      lemon::Price{100}, {first, second}
+    )
+  );
+  const std::string before = level.snapshot_to_json();
+  const auto statistics_before = level.stats()->snapshot();
+
+  bool rejected = false;
+  try {
+    static_cast<void>(level.update_order(
+      lemon::OrderUpdate::quantity(2, lemon::Quantity{20})
+    ));
+  } catch (const lemon::PriceLevelError&) {
+    rejected = true;
+  }
+  assert(rejected);
+  assert(level.snapshot_to_json() == before);
+  assert(order_ids(level.snapshot_by_insertion_sequence()) ==
+         (std::vector<lemon::OrderId>{1, 2}));
+  assert(level.stats()->snapshot().orders_added ==
+         statistics_before.orders_added);
+  assert(!level.update_order(
+    lemon::OrderUpdate::quantity(99, lemon::Quantity{1})
+  ));
+}
+
+void admission_validation_precedes_duplicate_detection() {
+  lemon::PriceLevel level{lemon::Price{100}};
+  level.add_order(maker(1, 2, 100));
+  bool reported_price = false;
+  try {
+    level.add_order(lemon::OrderType::standard(
+      1, lemon::Side::Sell, lemon::Price{101}, lemon::Quantity{2}, 101
+    ));
+  } catch (const lemon::PriceLevelError& error) {
+    reported_price = std::string{error.what()}.find("price") !=
+      std::string::npos;
+  }
+  assert(reported_price);
+}
+
 } // namespace
 
 int main() {
@@ -738,5 +855,8 @@ int main() {
   admission_enforces_price_and_single_side_topology();
   draining_or_removing_final_order_unpins_the_side();
   snapshot_recovery_rejects_invalid_topology();
+  admission_rejects_quantity_overflow_before_publication();
+  failed_quantity_update_has_strong_exception_guarantee();
+  admission_validation_precedes_duplicate_detection();
   return 0;
 }

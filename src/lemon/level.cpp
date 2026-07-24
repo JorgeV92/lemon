@@ -23,6 +23,22 @@ std::uint64_t checked_total(const OrderType& order) {
   return visible + hidden;
 }
 
+std::uint64_t checked_replacement_total(
+  std::uint64_t current,
+  std::uint64_t old_value,
+  std::uint64_t new_value,
+  const char* field
+) {
+  if (old_value > current) {
+    throw PriceLevelError(std::string{field} + " underflow");
+  }
+  const std::uint64_t without_old = current - old_value;
+  if (new_value > std::numeric_limits<std::uint64_t>::max() - without_old) {
+    throw PriceLevelError(std::string{field} + " overflow");
+  }
+  return without_old + new_value;
+}
+
 TakerKind taker_kind_for(const OrderType& order) {
   if (order.kind() == OrderKind::PostOnly) {
     return TakerKind::PostOnly;
@@ -45,6 +61,7 @@ std::optional<Side> validate_topology(
     if (!order) {
       throw PriceLevelError("snapshot contains a null order");
     }
+    static_cast<void>(checked_total(*order));
     if (order->get_price() != price) {
       throw PriceLevelError("snapshot contains an order at the wrong price");
     }
@@ -171,6 +188,9 @@ std::shared_ptr<PriceLevelStatistics> PriceLevel::stats() const {
 
 std::shared_ptr<OrderType> PriceLevel::add_order(OrderType order) {
   std::lock_guard<std::mutex> match_lock(match_mutex_);
+  // Validate everything that can fail before assigning queue priority or
+  // publishing any aggregate transition.
+  static_cast<void>(checked_total(order));
   if (order.get_price() != price_) {
     throw PriceLevelError("order price does not match the price level");
   }
@@ -554,6 +574,31 @@ std::optional<std::shared_ptr<OrderType>> PriceLevel::update_quantity(
   const std::uint64_t new_total = checked_total(updated_order);
   auto replacement = std::make_shared<OrderType>(std::move(updated_order));
 
+  const std::uint64_t old_visible =
+    (*existing)->get_visible_quantity().value();
+  const std::uint64_t old_hidden =
+    (*existing)->get_hidden_quantity().value();
+  const std::uint64_t new_visible = replacement->get_visible_quantity().value();
+  const std::uint64_t new_hidden = replacement->get_hidden_quantity().value();
+  const std::uint64_t current_visible =
+    visible_quantity_.load(std::memory_order_relaxed);
+  const std::uint64_t current_hidden =
+    hidden_quantity_.load(std::memory_order_relaxed);
+  const std::uint64_t resulting_visible = checked_replacement_total(
+    current_visible,
+    old_visible,
+    new_visible,
+    "visible_quantity"
+  );
+  const std::uint64_t resulting_hidden = checked_replacement_total(
+    current_hidden,
+    old_hidden,
+    new_hidden,
+    "hidden_quantity"
+  );
+
+  // OrderQueue mutation is the last potentially throwing operation. Once it
+  // succeeds, the prevalidated aggregate values can be published by stores.
   std::optional<std::shared_ptr<OrderType>> previous;
   if (new_total > previous_total) {
     previous = orders_.replace_at_tail(order_id, replacement);
@@ -564,21 +609,8 @@ std::optional<std::shared_ptr<OrderType>> PriceLevel::update_quantity(
     return std::nullopt;
   }
 
-  const std::uint64_t old_visible = (*previous)->get_visible_quantity().value();
-  const std::uint64_t old_hidden = (*previous)->get_hidden_quantity().value();
-  const std::uint64_t new_visible = replacement->get_visible_quantity().value();
-  const std::uint64_t new_hidden = replacement->get_hidden_quantity().value();
-
-  if (new_visible >= old_visible) {
-    add_checked(visible_quantity_, new_visible - old_visible, "visible_quantity");
-  } else {
-    subtract_checked(visible_quantity_, old_visible - new_visible, "visible_quantity");
-  }
-  if (new_hidden >= old_hidden) {
-    add_checked(hidden_quantity_, new_hidden - old_hidden, "hidden_quantity");
-  } else {
-    subtract_checked(hidden_quantity_, old_hidden - new_hidden, "hidden_quantity");
-  }
+  visible_quantity_.store(resulting_visible, std::memory_order_relaxed);
+  hidden_quantity_.store(resulting_hidden, std::memory_order_relaxed);
 
   return replacement;
 }
