@@ -98,7 +98,8 @@ private:
     Quantity hidden_quantity,
     std::size_t order_count,
     std::vector<std::shared_ptr<OrderType>> orders,
-    PriceLevelStatisticsData statistics
+    PriceLevelStatisticsData statistics,
+    std::optional<Side> resting_side
   );
 
   bool has_matchable_depth() const;
@@ -126,6 +127,7 @@ private:
   std::atomic_size_t order_count_{0};
   OrderQueue orders_;
   std::shared_ptr<PriceLevelStatistics> stats_;
+  std::optional<Side> resting_side_;
   mutable std::mutex match_mutex_;
 };
 

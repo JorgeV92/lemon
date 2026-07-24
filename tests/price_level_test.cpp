@@ -608,6 +608,115 @@ void snapshot_recovery_preserves_replenishment_demotions() {
   }
 }
 
+void admission_enforces_price_and_single_side_topology() {
+  lemon::PriceLevel level{lemon::Price{100}};
+  const auto before = level.stats()->snapshot();
+
+  bool wrong_price_rejected = false;
+  try {
+    level.add_order(lemon::OrderType::standard(
+      1, lemon::Side::Sell, lemon::Price{101}, lemon::Quantity{2}, 100
+    ));
+  } catch (const lemon::PriceLevelError&) {
+    wrong_price_rejected = true;
+  }
+  assert(wrong_price_rejected);
+  assert(level.order_count() == 0);
+  assert(level.stats()->snapshot().orders_added == before.orders_added);
+
+  level.add_order(maker(1, 2, 100));
+  level.add_order(maker(2, 2, 101));
+  const std::string pinned = level.snapshot_to_json();
+
+  bool opposite_side_rejected = false;
+  try {
+    level.add_order(lemon::OrderType::standard(
+      3, lemon::Side::Buy, lemon::Price{100}, lemon::Quantity{2}, 102
+    ));
+  } catch (const lemon::PriceLevelError&) {
+    opposite_side_rejected = true;
+  }
+  assert(opposite_side_rejected);
+  assert(level.snapshot_to_json() == pinned);
+}
+
+void draining_or_removing_final_order_unpins_the_side() {
+  {
+    lemon::PriceLevel level{lemon::Price{100}};
+    level.add_order(maker(1, 2, 100));
+    lemon::TradeIdGenerator trade_ids{100};
+    const auto result = level.match_order(
+      lemon::Quantity{2}, 99, {}, lemon::TakerKind::Standard, 200, trade_ids
+    );
+    assert(result.is_complete());
+    assert(level.order_count() == 0);
+    level.add_order(lemon::OrderType::standard(
+      2, lemon::Side::Buy, lemon::Price{100}, lemon::Quantity{2}, 201
+    ));
+    assert(level.order_count() == 1);
+  }
+
+  {
+    lemon::PriceLevel level{lemon::Price{100}};
+    level.add_order(maker(1, 2, 100));
+    assert(level.update_order(lemon::OrderUpdate::cancel(1)));
+    level.add_order(lemon::OrderType::standard(
+      2, lemon::Side::Buy, lemon::Price{100}, lemon::Quantity{2}, 201
+    ));
+    assert(level.order_count() == 1);
+  }
+
+  {
+    lemon::PriceLevel level{lemon::Price{100}};
+    level.add_order(maker(1, 2, 100));
+    assert(level.update_order(
+      lemon::OrderUpdate::price(1, lemon::Price{101})
+    ));
+    level.add_order(lemon::OrderType::standard(
+      2, lemon::Side::Buy, lemon::Price{100}, lemon::Quantity{2}, 201
+    ));
+    assert(level.order_count() == 1);
+  }
+}
+
+void snapshot_recovery_rejects_invalid_topology() {
+  const auto wrong_price = std::make_shared<lemon::OrderType>(
+    lemon::OrderType::standard(
+      1, lemon::Side::Sell, lemon::Price{101}, lemon::Quantity{2}, 100
+    )
+  );
+  const auto sell = std::make_shared<lemon::OrderType>(maker(1, 2, 100));
+  const auto buy = std::make_shared<lemon::OrderType>(
+    lemon::OrderType::standard(
+      2, lemon::Side::Buy, lemon::Price{100}, lemon::Quantity{2}, 101
+    )
+  );
+
+  bool wrong_price_rejected = false;
+  try {
+    static_cast<void>(lemon::PriceLevel::from_snapshot(
+      lemon::PriceLevelSnapshot::with_orders(
+        lemon::Price{100}, {wrong_price}
+      )
+    ));
+  } catch (const lemon::PriceLevelError&) {
+    wrong_price_rejected = true;
+  }
+  assert(wrong_price_rejected);
+
+  bool mixed_side_rejected = false;
+  try {
+    static_cast<void>(lemon::PriceLevel::from_snapshot(
+      lemon::PriceLevelSnapshot::with_orders(
+        lemon::Price{100}, {sell, buy}
+      )
+    ));
+  } catch (const lemon::PriceLevelError&) {
+    mixed_side_rejected = true;
+  }
+  assert(mixed_side_rejected);
+}
+
 } // namespace
 
 int main() {
@@ -626,5 +735,8 @@ int main() {
   matchable_quantity_skips_self_and_other_ids_match_normally();
   snapshot_recovery_preserves_exact_consumption_order();
   snapshot_recovery_preserves_replenishment_demotions();
+  admission_enforces_price_and_single_side_topology();
+  draining_or_removing_final_order_unpins_the_side();
+  snapshot_recovery_rejects_invalid_topology();
   return 0;
 }

@@ -33,6 +33,33 @@ TakerKind taker_kind_for(const OrderType& order) {
   return TakerKind::Standard;
 }
 
+std::optional<Side> validate_topology(
+  Price price,
+  const std::vector<std::shared_ptr<OrderType>>& orders
+) {
+  std::optional<Side> side;
+  std::unordered_set<OrderId> order_ids;
+  order_ids.reserve(orders.size());
+
+  for (const auto& order : orders) {
+    if (!order) {
+      throw PriceLevelError("snapshot contains a null order");
+    }
+    if (order->get_price() != price) {
+      throw PriceLevelError("snapshot contains an order at the wrong price");
+    }
+    if (side && order->get_side() != *side) {
+      throw PriceLevelError("snapshot contains mixed order sides");
+    }
+    if (!order_ids.insert(order->get_id()).second) {
+      throw PriceLevelError("snapshot contains duplicate order IDs");
+    }
+    side = order->get_side();
+  }
+
+  return side;
+}
+
 } // namespace
 
 PriceLevel::PriceLevel(Price price)
@@ -46,27 +73,26 @@ PriceLevel::PriceLevel(
   Quantity hidden_quantity,
   std::size_t order_count,
   std::vector<std::shared_ptr<OrderType>> orders,
-  PriceLevelStatisticsData statistics
+  PriceLevelStatisticsData statistics,
+  std::optional<Side> resting_side
 )
   : price_(price),
     visible_quantity_(visible_quantity.value()),
     hidden_quantity_(hidden_quantity.value()),
     order_count_(order_count),
     orders_(orders),
-    stats_(std::make_shared<PriceLevelStatistics>(statistics)) {
+    stats_(std::make_shared<PriceLevelStatistics>(statistics)),
+    resting_side_(resting_side) {
 }
 
 PriceLevel PriceLevel::from_snapshot(PriceLevelSnapshot snapshot) {
-  snapshot.refresh_aggregates();
-  std::unordered_set<OrderId> order_ids;
-  order_ids.reserve(snapshot.order_count());
-  for (const auto& order : snapshot.orders()) {
-    if (order && !order_ids.insert(order->get_id()).second) {
-      throw PriceLevelError("snapshot contains duplicate order IDs");
-    }
-  }
-
   const Price price = snapshot.price();
+  const std::optional<Side> side = validate_topology(
+    price,
+    snapshot.orders()
+  );
+  snapshot.refresh_aggregates();
+
   const Quantity visible = snapshot.visible_quantity();
   const Quantity hidden = snapshot.hidden_quantity();
   const std::size_t count = snapshot.order_count();
@@ -79,7 +105,8 @@ PriceLevel PriceLevel::from_snapshot(PriceLevelSnapshot snapshot) {
     hidden,
     count,
     std::move(orders),
-    statistics
+    statistics,
+    side
   };
 }
 
@@ -144,6 +171,12 @@ std::shared_ptr<PriceLevelStatistics> PriceLevel::stats() const {
 
 std::shared_ptr<OrderType> PriceLevel::add_order(OrderType order) {
   std::lock_guard<std::mutex> match_lock(match_mutex_);
+  if (order.get_price() != price_) {
+    throw PriceLevelError("order price does not match the price level");
+  }
+  if (resting_side_ && order.get_side() != *resting_side_) {
+    throw PriceLevelError("order side does not match the resting level side");
+  }
   if (orders_.find(order.get_id())) {
     throw PriceLevelError("an order with this ID already exists at the level");
   }
@@ -169,6 +202,9 @@ std::shared_ptr<OrderType> PriceLevel::add_order(OrderType order) {
   visible_quantity_.store(current_visible + visible, std::memory_order_relaxed);
   hidden_quantity_.store(current_hidden + hidden, std::memory_order_relaxed);
   order_count_.store(current_count + 1, std::memory_order_relaxed);
+  if (current_count == 0) {
+    resting_side_ = stored->get_side();
+  }
   stats_->record_order_added();
   return stored;
 }
@@ -424,6 +460,9 @@ MatchResult PriceLevel::match_order(
         throw PriceLevelError("order count underflow during match");
       }
       order_count_.store(current - 1, std::memory_order_relaxed);
+      if (current == 1) {
+        resting_side_.reset();
+      }
       if (step.hidden_stranded > 0) {
         subtract_checked(
           hidden_quantity_,
@@ -492,6 +531,9 @@ std::optional<std::shared_ptr<OrderType>> PriceLevel::remove_order(
     throw PriceLevelError("order count underflow while removing order");
   }
   order_count_.store(current - 1, std::memory_order_relaxed);
+  if (current == 1) {
+    resting_side_.reset();
+  }
   stats_->record_order_removed();
   return removed;
 }
